@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Environments (one .venv only)
+.venv/
+
+# Tool caches and reports
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Graphify is not run in this project; keep any output out of the repo
+graphify-out/
+
+# Editor and assistant local state
+.claude/
+.vscode/
