@@ -124,9 +124,9 @@ BANNED_IO_SOURCES = [
     "from random import choice\n",
     "import asyncio.streams\n",
     "from asyncio import streams\n",
-    "from asyncio import open_connection\n",
+    "from asyncio import start_unix_server\n",
     "from asyncio import StreamReader as R\n",
-    "import asyncio\nasyncio.open_connection('x', 1)\n",
+    "import asyncio\nasyncio.start_server(None, 'x', 1)\n",
     "import asyncio as aio\naio.start_server(None, 'x', 1)\n",
     "from datetime import datetime\ndatetime.now()\n",
     "from datetime import datetime as dt\ndt.utcnow()\n",
@@ -508,3 +508,48 @@ def test_a_diamond_shaped_cycle_is_reported_once(tmp_path: Path) -> None:
     )
     [violation] = arch.check_tree(src)
     assert violation.message.count("->") == 3
+
+
+# -- connecting is the connector's job ---------------------------------------------------
+
+
+CONNECT_SOURCES = [
+    "import asyncio\nasyncio.open_connection('x', 1)\n",
+    "import asyncio as aio\naio.open_connection('x', 1)\n",
+    "from asyncio import open_connection\n",
+    "from asyncio import open_connection as oc\noc('x', 1)\n",
+    "import asyncio\nasyncio.open_unix_connection('x')\n",
+    "import socket\nsocket.create_connection(('x', 1))\n",
+    "from socket import create_connection\n",
+    "import socket\ns = socket.socket()\ns.connect_ex(('x', 1))\n",
+    "async def f(loop, sock):\n    await loop.sock_connect(sock, ('x', 1))\n",
+    "async def f(loop):\n    await loop.create_connection(None, 'x', 1)\n",
+    "import asyncio\nopen_it = getattr(asyncio, 'open_connection')\n",
+]
+
+
+@pytest.mark.parametrize("source", CONNECT_SOURCES)
+@pytest.mark.parametrize("path", ["net/other.py", "lab/bad.py", "cli/bad.py", "engine/bad.py"])
+def test_connecting_anywhere_but_the_connector_is_a_violation(
+    tmp_path: Path, path: str, source: str
+) -> None:
+    found = codes(make_tree(tmp_path, {path: source}))
+    assert "connect_outside_connector" in found
+
+
+@pytest.mark.parametrize("source", CONNECT_SOURCES)
+def test_the_connector_module_may_connect(tmp_path: Path, source: str) -> None:
+    found = codes(make_tree(tmp_path, {"net/connector.py": source}))
+    assert "connect_outside_connector" not in found
+
+
+def test_calling_a_connector_object_is_not_a_connect_function(tmp_path: Path) -> None:
+    source = "async def f(connector):\n    return await connector.connect('x', 1, timeout=1.0)\n"
+    assert codes(make_tree(tmp_path, {"engine/ok.py": source})) == []
+
+
+def test_the_real_connector_is_the_only_module_that_connects() -> None:
+    offenders = [v for v in arch.check_tree(SRC) if v.code == "connect_outside_connector"]
+    assert offenders == []
+    text = (SRC / "network_scanner" / "net" / "connector.py").read_text(encoding="utf-8")
+    assert "open_connection" in text

@@ -7,7 +7,11 @@ Enforces, for every module under src/network_scanner:
    use asyncio stream APIs, or call datetime.now()-style clock functions;
 3. no dynamic imports (`__import__`, `importlib.import_module`), which would bypass 1 and 2;
 4. every package under network_scanner must be listed in LAYERS below;
-5. no import cycles, at module level (`import_cycle`) and between packages
+5. connecting is the connector's job: only net/connector.py may use open_connection,
+   create_connection, sock_connect or connect_ex (`connect_outside_connector`), so every
+   connection to a target goes through the policy re-check there. This is a guard rail,
+   not a proof: a plain `sock.connect()` is not matched by name;
+6. no import cycles, at module level (`import_cycle`) and between packages
    (`package_cycle`, which is how cycles between peer packages on one layer show up).
    Imports inside functions and under `if TYPE_CHECKING` count. A module also depends on
    its parent packages, because importing it runs their `__init__` first; a package
@@ -59,6 +63,17 @@ ASYNCIO_STREAM_NAMES = frozenset(
 )
 CLOCK_CALLS = frozenset({"now", "utcnow", "today"})
 DYNAMIC_IMPORTS = frozenset({"__import__", "import_module"})
+CONNECT_NAMES = frozenset(
+    {
+        "open_connection",
+        "open_unix_connection",
+        "create_connection",
+        "create_unix_connection",
+        "sock_connect",
+        "connect_ex",
+    }
+)
+CONNECTOR_PATH = "network_scanner/net/connector.py"
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,7 +180,17 @@ class _FileChecker(ast.NodeVisitor):
             if module[0] == "datetime":
                 self.datetime_module_aliases.add(bound)
 
+    def _check_connect_name(self, node: ast.AST, name: str) -> None:
+        if name in CONNECT_NAMES and self.rel != CONNECTOR_PATH:
+            self._add(node, "connect_outside_connector", f"{name} is reserved for {CONNECTOR_PATH}")
+
+    def visit_Constant(self, node: ast.Constant) -> None:
+        if isinstance(node.value, str):  # getattr(asyncio, "open_connection") and the like
+            self._check_connect_name(node, node.value)
+
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        for alias in node.names:
+            self._check_connect_name(node, alias.name)
         module, names = _resolve_from(node, self.package)
         if module is None:
             self._add(node, "layer_order", "relative import escapes the package tree")
@@ -184,6 +209,7 @@ class _FileChecker(ast.NodeVisitor):
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
         value = node.value
+        self._check_connect_name(node, node.attr)
         if not self._io_allowed:
             if (
                 isinstance(value, ast.Name)
@@ -210,6 +236,8 @@ class _FileChecker(ast.NodeVisitor):
         name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
         if name in DYNAMIC_IMPORTS:
             self._add(node, "dynamic_import", f"{name}() is not allowed")
+        if isinstance(func, ast.Name):
+            self._check_connect_name(node, func.id)
         self.generic_visit(node)
 
 
