@@ -21,6 +21,11 @@ Packages under `src/network_scanner` sit in numbered layers (`core` 0; `scope`, 
    would bypass the two rules above.
 4. A package that is not in the layer table is itself a violation, so a new package
    cannot be added without deciding its layer.
+5. There are no import cycles, neither between modules (`import_cycle`) nor between
+   packages (`package_cycle`; this is how a cycle between peer packages on one layer
+   is caught). Imports inside functions and under `if TYPE_CHECKING` count. A module also
+   depends on its parent packages, because importing it runs their `__init__` first, so a
+   package `__init__` must not import its own submodules.
 
 The check also runs inside pytest, with tests that plant violations in a temporary tree.
 

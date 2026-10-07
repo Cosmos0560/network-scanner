@@ -273,3 +273,224 @@ def test_main_returns_zero_on_a_clean_tree(
 def test_main_defaults_to_the_real_tree(capsys: pytest.CaptureFixture[str]) -> None:
     assert arch.main([]) == 0
     assert "passed" in capsys.readouterr().out
+
+
+# -- import cycles -----------------------------------------------------------------------
+
+
+def cycle_violations(src: Path) -> list[arch.Violation]:
+    return [v for v in arch.check_tree(src) if v.code in {"import_cycle", "package_cycle"}]
+
+
+def test_a_two_module_cycle_in_one_package_is_reported(tmp_path: Path) -> None:
+    src = make_tree(
+        tmp_path,
+        {
+            "core/a.py": "from network_scanner.core import b\n",
+            "core/b.py": "\n\nfrom network_scanner.core import a\n",
+        },
+    )
+    [violation] = arch.check_tree(src)
+    assert violation.code == "import_cycle"
+    assert violation.path == "network_scanner/core/a.py"
+    assert violation.line == 1
+    assert violation.message == (
+        "module import cycle: network_scanner.core.a -> network_scanner.core.b"
+        " -> network_scanner.core.a"
+    )
+
+
+@pytest.mark.parametrize(
+    ("a", "b"),
+    [
+        ("from . import b\n", "from . import a\n"),
+        ("from .b import X\n", "from .a import Y\n"),
+        ("import network_scanner.core.b\n", "import network_scanner.core.a\n"),
+        ("from network_scanner.core.b import X\n", "from ..core.a import Y\n"),
+        ("def f():\n    from . import b\n", "def g():\n    from . import a\n"),
+        (
+            "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from . import b\n",
+            "from . import a\n",
+        ),
+    ],
+)
+def test_cycles_are_found_however_the_import_is_written(tmp_path: Path, a: str, b: str) -> None:
+    src = make_tree(tmp_path, {"core/a.py": a, "core/b.py": b})
+    assert [v.code for v in arch.check_tree(src)] == ["import_cycle"]
+
+
+def test_a_three_module_cycle_is_reported_once_with_a_shortest_cycle(tmp_path: Path) -> None:
+    src = make_tree(
+        tmp_path,
+        {
+            "core/a.py": "from . import b\n",
+            "core/b.py": "from . import c\n",
+            "core/c.py": "from . import a\nfrom . import b\n",  # c -> b is a shorter detour
+        },
+    )
+    [violation] = arch.check_tree(src)
+    assert violation.code == "import_cycle"
+    assert violation.message.count("->") == 3
+
+
+def test_two_separate_cycles_are_reported_separately(tmp_path: Path) -> None:
+    src = make_tree(
+        tmp_path,
+        {
+            "core/a.py": "from . import b\n",
+            "core/b.py": "from . import a\n",
+            "core/c.py": "from . import d\n",
+            "core/d.py": "from . import c\n",
+        },
+    )
+    assert [v.path for v in arch.check_tree(src)] == [
+        "network_scanner/core/a.py",
+        "network_scanner/core/c.py",
+    ]
+
+
+def test_a_cycle_between_peer_packages_on_one_layer_is_a_package_cycle(tmp_path: Path) -> None:
+    # No module-level cycle here: scope.a -> ports.b and ports.c -> scope.d.
+    src = make_tree(
+        tmp_path,
+        {
+            "scope/a.py": "from network_scanner.ports import b\n",
+            "scope/d.py": "x = 1\n",
+            "ports/b.py": "x = 1\n",
+            "ports/c.py": "from network_scanner.scope import d\n",
+        },
+    )
+    [violation] = arch.check_tree(src)
+    assert violation.code == "package_cycle"
+    assert violation.path == "network_scanner/ports/c.py"
+    assert violation.message == "package import cycle: ports -> scope -> ports"
+
+
+def test_a_module_level_cycle_between_peer_packages_reports_both_kinds(tmp_path: Path) -> None:
+    src = make_tree(
+        tmp_path,
+        {
+            "scope/a.py": "from network_scanner.ports import b\n",
+            "ports/b.py": "from network_scanner.scope import a\n",
+        },
+    )
+    assert sorted(v.code for v in arch.check_tree(src)) == ["import_cycle", "package_cycle"]
+
+
+def test_a_cycle_across_layers_is_reported_in_addition_to_the_layer_violation(
+    tmp_path: Path,
+) -> None:
+    src = make_tree(
+        tmp_path,
+        {
+            "core/a.py": "from network_scanner.scope import b\n",
+            "scope/b.py": "from network_scanner.core import a\n",
+        },
+    )
+    assert sorted(v.code for v in arch.check_tree(src)) == [
+        "import_cycle",
+        "layer_order",
+        "package_cycle",
+    ]
+
+
+def test_a_package_init_that_imports_its_own_submodule_is_a_cycle(tmp_path: Path) -> None:
+    src = make_tree(tmp_path, {"core/__init__.py": "from .a import X\n", "core/a.py": "X = 1\n"})
+    [violation] = arch.check_tree(src)
+    assert violation.code == "import_cycle"
+    assert violation.message == (
+        "module import cycle: network_scanner.core -> network_scanner.core.a"
+        " -> network_scanner.core"
+    )
+
+
+def test_a_cycle_of_three_peer_packages_is_reported_as_one_package_cycle(tmp_path: Path) -> None:
+    src = make_tree(
+        tmp_path,
+        {
+            "net/a.py": "from network_scanner.rules import b\n",
+            "rules/b.py": "from network_scanner.scope import c\n",
+            "scope/c.py": "from network_scanner.net import a\n",
+        },
+    )
+    codes_found = {v.code for v in arch.check_tree(src)}
+    assert "package_cycle" in codes_found
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        # diamond
+        {
+            "core/a.py": "from . import b, c\n",
+            "core/b.py": "from . import d\n",
+            "core/c.py": "from . import d\n",
+            "core/d.py": "x = 1\n",
+        },
+        # chain across layers, downward only
+        {
+            "engine/a.py": "from network_scanner.net import b\n",
+            "net/b.py": "from network_scanner.core import c\n",
+            "core/c.py": "x = 1\n",
+        },
+        # importing your own package by name, and a sibling that does not import back
+        {
+            "core/a.py": "from network_scanner.core import b\n",
+            "core/b.py": "x = 1\n",
+        },
+        # peers that depend on one side only
+        {
+            "scope/a.py": "from network_scanner.ports import b\n",
+            "ports/b.py": "from network_scanner.core import c\n",
+            "core/c.py": "x = 1\n",
+        },
+        # a module that only mentions itself in a string or comment
+        {"core/a.py": "# from . import a\nNAME = 'network_scanner.core.a'\n"},
+    ],
+)
+def test_acyclic_graphs_are_not_flagged(tmp_path: Path, files: dict[str, str]) -> None:
+    assert cycle_violations(make_tree(tmp_path, files)) == []
+
+
+def test_a_very_long_import_chain_does_not_hit_the_recursion_limit() -> None:
+    count = 20_000  # far past Python's default recursion limit
+    ring = {(f"m{i}", f"m{(i + 1) % count}"): ("p.py", i) for i in range(count)}
+    [violation] = arch._cycle_violations(ring, "import_cycle", "module")
+    assert violation.message.count("->") == count
+    chain = {(f"m{i}", f"m{i + 1}"): ("p.py", i) for i in range(count)}
+    assert arch._cycle_violations(chain, "import_cycle", "module") == []
+
+
+def test_a_cycle_check_on_a_wide_tree_finishes(tmp_path: Path) -> None:
+    files = {f"core/m{i}.py": f"from . import m{i + 1}\n" for i in range(200)}
+    files["core/m200.py"] = "from . import m0\n"
+    [violation] = cycle_violations(make_tree(tmp_path, files))
+    assert violation.message.count("->") == 201
+
+
+def test_cycle_reports_are_deterministic(tmp_path: Path) -> None:
+    src = make_tree(
+        tmp_path,
+        {
+            "core/a.py": "from . import b, c\n",
+            "core/b.py": "from . import a\n",
+            "core/c.py": "from . import a\n",
+        },
+    )
+    first = arch.check_tree(src)
+    assert first == arch.check_tree(src)
+    assert [v.code for v in first] == ["import_cycle"]
+
+
+def test_imports_of_unknown_or_outside_modules_create_no_edges(tmp_path: Path) -> None:
+    src = make_tree(
+        tmp_path,
+        {"core/a.py": "import os\nimport network_scanner.core.missing\nimport network_scanner\n"},
+    )
+    assert cycle_violations(src) == []
+
+
+def test_main_fails_on_a_planted_cycle(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    src = make_tree(tmp_path, {"core/a.py": "from . import b\n", "core/b.py": "from . import a\n"})
+    assert arch.main([str(src)]) == 1
+    assert "import_cycle" in capsys.readouterr().out
