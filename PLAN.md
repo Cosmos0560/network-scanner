@@ -79,14 +79,14 @@ Imports go downward only. `check_architecture.py` enforces two things:
 | 0 | `core` | `model.py` (frozen dataclasses, enums), `errors.py`, `sanitize.py`, `limits.py` (defaults and ceilings), `interfaces.py` (Protocols: Clock, Sleeper, Resolver, Connector, TlsProber) |
 | 1 | `scope` | `parser.py` (closed target grammar), `classify.py` (address classes), `policy.py` (pure decision), `scopefile.py` |
 | 1 | `ports` | `spec.py` (lists, ranges), `presets.py` + `data/ports_common.yaml` |
-| 2 | `net` | `connector.py`, `resolver.py`, `tls.py`, `oserrors.py` (errno and WinError to enum), `ratelimit.py` (token bucket, injected clock), `der.py` (D1) |
+| 2 | `net` | `connector.py`, `resolver.py`, `tls.py` (handshake; certificate fields parsed with `cryptography`, D1), `oserrors.py` (errno and WinError to enum), `ratelimit.py` (token bucket, injected clock) |
 | 2 | `rules` | `loader.py`, `schema.py` (unknown fields, duplicate ids), `regex_safety.py`, `data/fingerprints.yaml`, `data/findings.yaml` |
 | 3 | `engine` | `scan.py` (bounded concurrency, timeouts, cancellation, ordering), `probe_plan.py` |
 | 4 | `fingerprint` | `match.py` (observation + rules to service) |
 | 4 | `findings` | `evaluate.py` (services + TLS info + rules to findings) |
 | 5 | `baseline` | `store.py` (versioned JSON), `diff.py` |
 | 5 | `output` | `table.py`, `json_out.py`, `jsonl.py`, `csv_out.py` |
-| 6 | `lab` | `servers.py` (ssh-like, http, tls, telnet-like), `certs/`. Hostile servers are test-only and live in `tests/`, not in the package |
+| 6 | `lab` | `servers.py` (ssh-like, http, tls, telnet-like). The TLS server uses an ephemeral self-signed certificate generated at runtime into a temporary directory that is deleted afterwards; no key or certificate is committed (D2). Hostile servers are test-only and live in `tests/`, not in the package |
 | 7 | `cli` | `main.py`, `commands/` (scan, baseline, rules, demo) |
 
 ## 3. Data model (all frozen dataclasses, JSON-serialisable)
@@ -200,13 +200,16 @@ and timeouts are tested with a fake clock; cancellation yields a partial report 
 exit 130; hostile servers (accept-then-close, RST) do not crash or hang the run.
 
 ### Phase 4: fingerprinting, TLS, fingerprint rules
-Build: banner read with caps, HTTP HEAD probe, TLS probe and certificate reader (D1),
-lab HTTP and TLS servers, committed test certs (D2) with a regeneration note,
+Build: banner read with caps, HTTP HEAD probe, TLS probe and certificate reader using
+`cryptography` (D1), lab HTTP and TLS servers, certificates generated at runtime into a
+temporary directory that is deleted afterwards (D2; none committed),
 `rules` loader and validator, `rules validate`.
 Accept: exact fingerprints for the four lab services; certificate fields match the
-committed certs exactly (valid, expired, mismatched name, CA-issued leaf); endless
-banner, slow drip, TLS garbage and truncated DER stay inside the caps; rule files with
-unknown fields, duplicate ids or unsafe regex are rejected with specific errors.
+generated certificates exactly (valid, expired, mismatched name, CA-issued leaf);
+"self-issued" and "signature verifies against its own key" are reported as two separate
+facts (D6); endless banner, slow drip, TLS garbage and truncated or malformed certificate
+data stay inside the caps; rule files with unknown fields, duplicate ids or unsafe regex
+are rejected with specific errors.
 This is the tightest phase. If it overruns, it stops at a commit boundary; tests are
 not cut.
 
@@ -231,7 +234,8 @@ was NOT verified.
 
 | Package | Kind | Reason |
 |---------|------|--------|
-| PyYAML | runtime | Rules are YAML data (D3); the stdlib has no YAML parser. `safe_load` only. |
+| PyYAML | runtime | The `common` port preset and the rules are YAML data (D3); the stdlib has no YAML parser. `safe_load` only. |
+| cryptography | runtime | Certificate parsing and the self-signature check (D1, D6). The stdlib has no X.509 parser, and a hand-written one is not wanted. Reason and wheel check in `docs/architecture.md`. Declared in the phase that first imports it. |
 | hatchling | build | Build backend for the src layout; not installed at runtime. |
 | pytest | dev | Test runner. |
 | pytest-cov | dev | Coverage threshold in the gate. |
@@ -241,15 +245,15 @@ was NOT verified.
 | pip-audit, bandit | final gate only | Temporary venv outside the repo, then deleted. Not in pyproject. |
 
 Deliberately not used: pytest-asyncio (tests call `asyncio.run` through a small helper),
-`cryptography` (unless D1 goes the other way), any CLI framework (argparse), any table
-library, any HTTP library.
+any CLI framework (argparse), any table library, any HTTP library.
 
 ## 7. Risks
 
-- R1 Certificate parsing without a crypto library (D1). A hand-written DER reader is the
-  largest piece of untrusted-input parsing in the project. Mitigation: strict subset,
-  size cap, parse errors become data, adversarial tests. Self-signed is reported as
-  self-issued only (D6).
+- R1 Certificates come from servers we do not control, so parsing them is untrusted-input
+  parsing. With D1 it is done by the `cryptography` library, not by our own code.
+  Mitigation: a size cap before anything is parsed, parse errors become data
+  (`parse_error`), adversarial tests with truncated and malformed certificate data.
+  "Self-issued" and "signature verifies against its own key" are two separate facts (D6).
 - R2 Windows may take about 2 s to report a refused connection, because it retries the
   SYN after a reset. With a short timeout a closed port would be misreported as
   filtered. To be MEASURED in Phase 3, not assumed; the default connect timeout (3 s
@@ -267,9 +271,11 @@ library, any HTTP library.
 - R5 "Filtered" cannot be produced on loopback without firewall rules. It is tested
   through an injected connector that never completes. Not verified against real dropped
   packets; listed under "not verified".
-- R6 Committed test key (D2) may be flagged by secret scanners or bandit. Mitigation:
-  clear marking in the file, the directory README and SECURITY.md. The valid cert uses a
-  far-future expiry; the expiry check takes the injected clock, so tests do not rot.
+- R6 Runtime certificate generation (D2). The demo and the tests create an ephemeral
+  self-signed certificate in a temporary directory that is deleted afterwards, so no key is
+  committed and secret scanners have nothing to flag. Risks: cleanup of the temporary
+  directory on Windows, and key-generation time in tests. The expiry check takes the
+  injected clock, so tests do not rot.
 - R7 Windows Proactor loop: no `add_signal_handler`, different exceptions on reset.
   Ctrl+C is handled around the runner and tested by injected cancellation, not real
   signals. Real Ctrl+C on both OSes is a manual check for Otabek.
