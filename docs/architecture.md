@@ -34,14 +34,19 @@ The check also runs inside pytest, with tests that plant violations in a tempora
 | Package | Kind | Reason |
 |---------|------|--------|
 | cryptography | runtime (declared when first used, Phase 4) | See below. |
-| PyYAML | runtime (declared when first used) | Rules and the port preset are YAML data (decision D3). The stdlib has no YAML parser. Loaded with `yaml.safe_load` only. |
+| PyYAML | runtime (declared in Phase 2; first imported by `ports/presets.py`) | The `common` port preset is YAML data and so will be the rules (decision D3). The stdlib has no YAML parser. Loaded with `yaml.safe_load` only; before loading, an event-stream check refuses anchors, aliases, explicit tags, duplicate keys and deep nesting (see `docs/ports.md`). `tests/test_ports_presets.py` fails if any source file calls an unsafe loader. |
 | hatchling | build | Build backend for the src layout. Not installed at runtime. |
 | pytest, pytest-cov | dev | Test runner and the coverage threshold in the gate. |
 | ruff | dev | Lint and format. |
 | mypy | dev | Strict type check on both platform settings. |
+| types-PyYAML | dev | Type stubs, so mypy can stay strict. |
 
-`pyproject.toml` declares no runtime dependency yet because nothing imports one.
-Each is added in the phase that first uses it.
+`pyproject.toml` declares a runtime dependency only in the phase whose code first imports
+it: PyYAML since Phase 2, `cryptography` from Phase 4.
+
+PyYAML wheels, checked 2026-10-07 the same way as below (`uv pip compile --only-binary
+:all:`): PyYAML 6.0.3 and types-PyYAML resolve for Python 3.11, 3.12 and 3.13 on
+`x86_64-pc-windows-msvc` and `x86_64-manylinux_2_39`.
 
 ### Why `cryptography` (decision D1)
 
@@ -81,3 +86,28 @@ the package on every combination; CI does that once the dependency is declared.
   documented as curated, not frequency-ranked.
 - No ATT&CK mapping in v1. An open port is not an observed technique. Findings carry
   evidence text and, only where precise, a CWE or RFC reference.
+
+## Scope and ports (Phase 2)
+
+Details are in [scope-policy.md](scope-policy.md) and [ports.md](ports.md). Design points
+that are not obvious from the code:
+
+- Address parsing and formatting are our own (`scope/parser.py`). `ipaddress` and
+  `socket` are used only inside tests, as a cross-check: an exhaustive test over small
+  alphabets compares our IPv4 acceptance with `inet_aton` and our IPv6 acceptance and
+  formatting with `ipaddress`.
+- Classification is a table of CIDR blocks with the most specific block winning, and a
+  second lookup that reports which classes occur in an address range without iterating
+  it. Both are in `scope/classify.py`; the table in the documentation is generated from it.
+- `plan_targets` (in `scope/policy.py`) is the single entry point that turns target
+  strings into the pinned scan list. It takes the resolver and the confirmation callback
+  as arguments, so it needs no network and no terminal in tests.
+- Reason codes live in `core/errors.py` with the other shared error types. Phase 2 added
+  fifteen to the six the plan names.
+- Fixed input bounds that are not per-run settings (answers per name, resolve timeout,
+  scope-file size, port-spec length) are constants in `core/limits.py`, not fields of
+  `Limits`, so the report schema is unchanged.
+- Interpretations that go beyond the plan, all on the conservative side: IPv6 space that
+  is not global unicast, unique-local, link-local, loopback or a listed special block is
+  refused as `reserved`; `192.0.0.0/24`, `192.88.99.0/24` and `64:ff9b:1::/48` are refused;
+  a name with more than eight answers is refused rather than truncated.
