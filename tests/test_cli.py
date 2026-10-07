@@ -68,3 +68,19 @@ def test_version_in_a_real_process() -> None:
     )
     assert completed.returncode == 0
     assert completed.stdout.strip() == f"network-scanner {__version__}"
+
+
+def test_the_default_environment_wires_the_real_adapters() -> None:
+    from network_scanner.cli.environment import default_environment
+    from network_scanner.net.connector import AsyncioConnector
+    from network_scanner.net.resolver import SystemResolver
+    from network_scanner.net.system import AsyncioSleeper, SystemClock
+    from network_scanner.scope.policy import ScopeOptions
+
+    env = default_environment()
+    assert isinstance(env.resolver, SystemResolver)
+    assert isinstance(env.clock, SystemClock)
+    assert isinstance(env.sleeper, AsyncioSleeper)
+    assert isinstance(env.connector_factory(ScopeOptions()), AsyncioConnector)
+    assert isinstance(env.interactive, bool)
+    assert env.ask is input
