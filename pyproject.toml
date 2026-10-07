@@ -20,7 +20,9 @@ classifiers = [
     "Topic :: System :: Networking :: Monitoring",
     "Typing :: Typed",
 ]
-dependencies = []
+dependencies = [
+    "PyYAML>=6,<7",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -28,6 +30,7 @@ dev = [
     "pytest-cov>=6,<8",
     "ruff>=0.15,<0.16",
     "mypy>=1.18,<3",
+    "types-PyYAML>=6,<7",
 ]
 
 [project.scripts]
@@ -63,7 +66,7 @@ src = ["src", "scripts", "tests"]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4", "PT", "RUF", "S"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]
+"tests/**" = ["S101", "S104"]
 
 [tool.mypy]
 files = ["src", "scripts", "tests"]

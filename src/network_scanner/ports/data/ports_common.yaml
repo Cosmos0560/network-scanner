@@ -1,0 +1,46 @@
+# The `common` port preset: a hand-curated list of well-known TCP service ports.
+# It is curated, NOT ranked by how often a port is found open, and it is not a complete
+# list of interesting ports. Service names are conventional labels, not registry data.
+# docs/ports.md carries the same table and a test keeps the two in step.
+schema_version: 1
+name: common
+description: Curated well-known TCP service ports (not ranked by frequency).
+ports:
+  - {port: 21, service: ftp}
+  - {port: 22, service: ssh}
+  - {port: 23, service: telnet}
+  - {port: 25, service: smtp}
+  - {port: 53, service: dns}
+  - {port: 80, service: http}
+  - {port: 110, service: pop3}
+  - {port: 111, service: rpcbind}
+  - {port: 135, service: msrpc}
+  - {port: 139, service: netbios-ssn}
+  - {port: 143, service: imap}
+  - {port: 389, service: ldap}
+  - {port: 443, service: https}
+  - {port: 445, service: smb}
+  - {port: 465, service: smtps}
+  - {port: 587, service: submission}
+  - {port: 631, service: ipp}
+  - {port: 636, service: ldaps}
+  - {port: 993, service: imaps}
+  - {port: 995, service: pop3s}
+  - {port: 1433, service: mssql}
+  - {port: 1521, service: oracle}
+  - {port: 1883, service: mqtt}
+  - {port: 2049, service: nfs}
+  - {port: 2375, service: docker}
+  - {port: 3306, service: mysql}
+  - {port: 3389, service: rdp}
+  - {port: 5432, service: postgresql}
+  - {port: 5900, service: vnc}
+  - {port: 5985, service: winrm-http}
+  - {port: 5986, service: winrm-https}
+  - {port: 6379, service: redis}
+  - {port: 8080, service: http-alt}
+  - {port: 8443, service: https-alt}
+  - {port: 8883, service: mqtts}
+  - {port: 9200, service: elasticsearch}
+  - {port: 11211, service: memcached}
+  - {port: 27017, service: mongodb}
