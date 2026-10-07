@@ -69,3 +69,22 @@ def test_documented_port_numbers_match_the_constants() -> None:
     default, ceiling = DEFAULT_LIMITS.max_ports_per_target, CEILINGS["max_ports_per_target"]
     assert f"({default} by default, never more than {ceiling})" in text
     assert f"at most {MAX_PORT_SPEC_CHARS} characters" in text
+
+
+def test_performance_doc_names_the_default_timeout_it_was_measured_against() -> None:
+    text = " ".join(read("performance.md").split())
+    assert f"connect timeout in the code at the time | {DEFAULT_LIMITS.connect_timeout_s} s" in text
+
+
+def test_measured_numbers_appear_only_in_the_performance_doc() -> None:
+    readme = (DOCS.parent / "README.md").read_text(encoding="utf-8")
+    others = {path.name: path.read_text(encoding="utf-8") for path in DOCS.glob("*.md")}
+    others["README.md"] = readme
+    del others["performance.md"]
+    pattern = re.compile(
+        r"\b\d+(\.\d+)?\s?(ms|milliseconds)\b|\bmedian\b|\b\d+\s+tests?\b|\bcoverage\b.*\d+\s?%"
+    )
+    offenders = {
+        name: pattern.findall(text) for name, text in others.items() if pattern.search(text)
+    }
+    assert offenders == {}

@@ -8,12 +8,19 @@ networks you are authorized to test.
 
 ## Status
 
-Under construction. Only the project scaffold exists so far; there is no scanning
-functionality yet. The one working command is:
+Under construction. The TCP connect scan works, checked end to end against loopback
+listeners by [tests/test_e2e.py](tests/test_e2e.py); there is no service fingerprinting,
+baseline or drift detection yet.
 
 ```
 network-scanner --version
+network-scanner scan 127.0.0.1 --ports 22,80,443
 ```
+
+The scope rules (what is scanned by default and what needs explicit permission) are in
+[docs/scope-policy.md](docs/scope-policy.md), how a scan is built and what it guarantees is
+in [docs/architecture.md](docs/architecture.md), and timing observations are in
+[docs/performance.md](docs/performance.md).
 
 The approved plan is in [PLAN.md](PLAN.md) and the working rules are in
 [CLAUDE.md](CLAUDE.md).

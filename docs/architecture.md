@@ -26,6 +26,10 @@ Packages under `src/network_scanner` sit in numbered layers (`core` 0; `scope`, 
    is caught). Imports inside functions and under `if TYPE_CHECKING` count. A module also
    depends on its parent packages, because importing it runs their `__init__` first, so a
    package `__init__` must not import its own submodules.
+6. Only `net/connector.py` may use `open_connection`, `create_connection`, `sock_connect`
+   or `connect_ex` (`connect_outside_connector`), so every connection to a target passes
+   the policy re-check described below. This is a guard rail, not a proof: a bare
+   `sock.connect()` is not matched by name, and the rule only covers `src/`.
 
 The check also runs inside pytest, with tests that plant violations in a temporary tree.
 
@@ -111,3 +115,62 @@ that are not obvious from the code:
   is not global unicast, unique-local, link-local, loopback or a listed special block is
   refused as `reserved`; `192.0.0.0/24`, `192.88.99.0/24` and `64:ff9b:1::/48` are refused;
   a name with more than eight answers is refused rather than truncated.
+
+## Scanning (Phase 3)
+
+How a `scan` run is put together, and what each part guarantees. Timing observations are in
+[performance.md](performance.md) and nowhere else.
+
+**Flow.** `cli/commands/scan.py` parses the arguments, builds `Limits`, parses the port
+specification, loads the scope file, and plans the targets with `plan_targets` (Phase 2).
+If the plan holds public addresses and a person can answer, the confirmation question is
+asked between two separate `asyncio.run` calls (planning, then scanning), so that Ctrl+C at
+the prompt is an ordinary `KeyboardInterrupt`. Then `engine/scan.py` runs the probes and the
+renderers in `output/` print the report.
+
+**No socket without the policy.** The connector (`net/connector.py`) re-checks every
+connection against the same `ScopeOptions` the plan was made with: the address must be a
+plain IP literal (a name, a CIDR or an odd form is refused, and nothing is resolved there),
+the policy must allow it, and the port must be 1-65535. It then connects with
+`AI_NUMERICHOST`, so no lookup can happen. A caller that skips the planner gets
+`ScopeRefusal` and no socket. The architecture check keeps other modules from connecting.
+
+**Port states.** `open`: the connection was established, and is closed again at once, with
+nothing sent. `closed`: refused. `filtered`: no answer within the connect timeout, or the
+network was unreachable. `error`: anything else, such as a reset while connecting. The
+mapping from operating-system errors to our own `NetErrorCode` (`net/oserrors.py`) is
+table-driven and covers the Windows error numbers that the Proactor loop reports without a
+useful exception class; it is tested with synthetic exceptions on every platform.
+
+**Bounds.** At most `concurrency` worker tasks exist whatever the number of probes: they
+pull (target, port) pairs lazily from one shared iterator. Each probe has the connect
+timeout, the run has the total timeout, the rate limiter (a token bucket on an injected
+clock and sleeper, capacity one so starts are spaced) paces connection starts, and
+targets x ports may not exceed 100,000 probes (`MAX_PROBES_PER_RUN`).
+
+**Results and ending.** Results are sorted by (position of the target in the plan, port),
+independent of completion order. Ctrl+C (cancellation) and the total timeout do not raise:
+the workers are cancelled and awaited, and a partial report with `complete: false` is
+returned together with the reason. Exit codes: 0 complete, 2 usage error or scope refusal,
+3 runtime error or total timeout, 130 interrupted. Any other exception from a probe aborts
+the run after the remaining workers have been cancelled.
+
+**The lab.** `lab/servers.py` opens listening sockets ("open") and bound-but-not-listening
+sockets ("closed") on loopback, on OS-assigned ports, and refuses any other host. A closed
+port is held, not merely free, so it cannot become open by a race. Hostile servers
+(accept then close, reset, silent) are test-only, in `tests/hostile.py`.
+
+**How the tests stay deterministic.** `tests/virtual_loop.py` is an event loop whose clock
+is a counter that jumps to the next timer, so engine, rate-limiter and timeout tests assert
+exact virtual times and never sleep; a loop that would wait forever fails the test instead
+of hanging. Tests that need real sockets use the lab or `tests/hostile.py`, bind loopback on
+port 0, and wait until a server has handled every connection before closing it (closing
+earlier abandons connections that are still being accepted, which showed up as leaked
+transports). `filterwarnings = error` plus a garbage collection after each test makes
+`ResourceWarning` and "coroutine was never awaited" fail the run, and
+`tests/test_leak_detection.py` proves that with a deliberately leaking test file.
+
+**Not verified.** Real dropped packets (`filtered` is tested with an injected connector),
+real DNS (the system resolver adapter is exercised only through an injected lookup), a real
+Ctrl+C in a console (tested in-process with `signal.raise_signal`, which exercises the
+same `asyncio.run` interrupt path but not a terminal), and Linux timing.
