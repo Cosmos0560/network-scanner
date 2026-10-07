@@ -18,6 +18,8 @@ from network_scanner.core.interfaces import (
 )
 from network_scanner.core.model import TlsInfo
 
+pytestmark = pytest.mark.leakcheck
+
 
 class FakeClock:
     def __init__(self) -> None:

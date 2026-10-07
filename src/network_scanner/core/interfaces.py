@@ -26,6 +26,11 @@ class Sleeper(Protocol):
         """Suspend for `seconds`."""
 
 
+class RateLimiter(Protocol):
+    async def acquire(self) -> None:
+        """Return when one more connection attempt may start."""
+
+
 class Resolver(Protocol):
     async def resolve(self, name: str, *, timeout: float) -> tuple[str, ...]:
         """Return the address literals for `name` (at most the configured answer cap)."""

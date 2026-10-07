@@ -56,3 +56,4 @@ RESOLVE_TIMEOUT_S = 5.0  # handed to the injected resolver for the single lookup
 MAX_SCOPE_FILE_BYTES = 64 * 1024  # PLAN.md section 4.3
 MAX_SCOPE_ENTRIES = 4096
 MAX_PORT_SPEC_CHARS = 4096
+MAX_PROBES_PER_RUN = 100_000  # targets x ports, so results and work stay bounded
