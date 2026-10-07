@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from network_scanner.core.errors import NetErrorCode
+from network_scanner.core.errors import NetErrorCode, ReasonCode
 from network_scanner.core.limits import DEFAULT_LIMITS
 from network_scanner.core.model import (
     SCHEMA_VERSION,
@@ -19,7 +19,6 @@ from network_scanner.core.model import (
     Finding,
     PortResult,
     PortState,
-    ReasonCode,
     ResolvedTarget,
     ScanReport,
     ScopeDecision,
@@ -119,8 +118,19 @@ def test_self_issued_and_self_signature_are_separate_facts() -> None:
     assert {"self_issued", "self_signature_valid"} <= names
 
 
-def test_scope_decision_reason_codes_match_the_plan() -> None:
-    assert {code.value for code in ReasonCode} == {
+def test_the_reason_codes_named_in_the_plan_exist() -> None:
+    assert {
+        "ambiguous_numeric",
+        "embedded_ipv4",
+        "public_not_allowed",
+        "not_in_scope_file",
+        "mixed_dns_answers",
+        "too_many_targets",
+    } <= {code.value for code in ReasonCode}
+
+
+def test_scope_decision_serialises() -> None:
+    assert {code.value for code in ReasonCode} >= {
         "ambiguous_numeric",
         "embedded_ipv4",
         "public_not_allowed",

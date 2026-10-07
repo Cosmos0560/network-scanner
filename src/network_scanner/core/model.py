@@ -10,7 +10,7 @@ from dataclasses import dataclass, fields, is_dataclass
 from enum import StrEnum
 from typing import Any
 
-from network_scanner.core.errors import NetErrorCode
+from network_scanner.core.errors import NetErrorCode, ReasonCode
 from network_scanner.core.limits import Limits
 
 SCHEMA_VERSION = 1
@@ -44,17 +44,6 @@ class AddressClass(StrEnum):
     DOCUMENTATION = "documentation"
     BENCHMARK = "benchmark"
     EMBEDDED_IPV4 = "embedded_ipv4"
-
-
-class ReasonCode(StrEnum):
-    """Stable scope-refusal reason codes (PLAN.md section 4.5)."""
-
-    AMBIGUOUS_NUMERIC = "ambiguous_numeric"
-    EMBEDDED_IPV4 = "embedded_ipv4"
-    PUBLIC_NOT_ALLOWED = "public_not_allowed"
-    NOT_IN_SCOPE_FILE = "not_in_scope_file"
-    MIXED_DNS_ANSWERS = "mixed_dns_answers"
-    TOO_MANY_TARGETS = "too_many_targets"
 
 
 class PortState(StrEnum):

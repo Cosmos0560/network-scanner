@@ -48,3 +48,11 @@ CEILINGS: dict[str, int | float] = {
 }
 
 DEFAULT_LIMITS = Limits()
+
+# Fixed input bounds. They are not per-run settings, so they are not part of `Limits`.
+MAX_TARGET_CHARS = 255  # one target string (PLAN.md section 4.1)
+MAX_DNS_ANSWERS = 8  # a name with more answers is refused (PLAN.md section 4.4)
+RESOLVE_TIMEOUT_S = 5.0  # handed to the injected resolver for the single lookup
+MAX_SCOPE_FILE_BYTES = 64 * 1024  # PLAN.md section 4.3
+MAX_SCOPE_ENTRIES = 4096
+MAX_PORT_SPEC_CHARS = 4096
