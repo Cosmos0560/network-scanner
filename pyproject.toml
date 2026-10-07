@@ -47,6 +47,7 @@ testpaths = ["tests"]
 pythonpath = ["scripts"]
 addopts = ["-ra", "--strict-markers", "--strict-config"]
 filterwarnings = ["error"]
+markers = ["leakcheck: collect garbage after each test so leaks are blamed on the right test"]
 
 [tool.coverage.run]
 source = ["src/network_scanner", "scripts"]
