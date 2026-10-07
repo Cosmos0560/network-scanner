@@ -3,16 +3,28 @@
 Status: PROPOSED. No code is written until Otabek approves this file.
 Section 0 lists the decisions that need an explicit yes or no.
 
-## 0. Decisions that need approval
+## 0. Decisions (final, approved by Otabek)
 
-| # | Decision | Recommendation | Alternative |
-|---|----------|----------------|-------------|
-| D1 | How to read certificate fields. With verification off, Python's `ssl` returns only raw DER bytes, and the stdlib has no public X.509 parser. | Small strict DER reader of our own (subject, issuer, validity, SAN, SHA-256 of DER). Input capped at 64 KB, any parse failure becomes a `tls_parse_error` field, fuzz-style adversarial tests. Zero dependencies. | `cryptography` as a runtime dependency: more accurate, but a large binary wheel for one feature. |
-| D2 | TLS test certificates. | Commit one test-only key and a few certificates inside the package (`lab/certs/`), marked "PUBLIC TEST KEY, NOT A SECRET". Reason: `demo` must start a TLS server on a fresh clone with no dev tools installed, so a dev-only generator cannot serve it. | Dev-only dependency that generates certs at test time; then `demo` needs the dev extras or loses its TLS server. |
-| D3 | Rules format. | YAML via PyYAML (`safe_load` only). This is the only runtime dependency. | TOML via stdlib `tomllib`: zero runtime deps, but the brief says YAML. |
-| D4 | Addresses the brief does not name. | 169.254.0.0/16 (IPv4 link-local, includes cloud metadata 169.254.169.254): always refused. 100.64.0.0/10 (CGNAT): treated as public, so it needs the full three-part gate. | Allow IPv4 link-local by default. |
-| D5 | "Top ports" preset. | Ship a curated `common` preset of well-known service ports and document it as curated, NOT frequency-ranked. I have no measured frequency data I can truthfully cite, and nmap's list has its own licence. | Drop the preset name "top" entirely (same thing, different label). |
-| D6 | Self-signed detection. | Report "self-issued" (issuer equals subject). Without a crypto library the signature is not verified, and the docs say so. | Follows D1: with `cryptography` the signature can be checked. |
+These are the final decisions. Where another section of this file still describes an
+earlier recommendation (for example a hand-written DER reader in `net/der.py`, committed
+certificates in `lab/certs/`, or "zero crypto dependencies" in sections 2, 5, 6 and 7),
+this section wins.
+
+| # | Decision | Final decision |
+|---|----------|----------------|
+| D1 | How to read certificate fields. With verification off, Python's `ssl` returns only raw DER bytes, and the stdlib has no public X.509 parser. | Use the `cryptography` package as a runtime dependency for certificate parsing. No hand-written DER parser. The reason is written in `docs/architecture.md`, and wheel availability for Windows and Linux on Python 3.11, 3.12 and 3.13 is verified there before the dependency is relied on. |
+| D2 | TLS test certificates. | No committed key or certificate. The demo and the tests generate an ephemeral self-signed certificate at runtime into a temporary directory that is deleted afterwards. |
+| D3 | Rules format. | YAML via PyYAML, loaded with `safe_load` only. |
+| D4 | Addresses the brief does not name. | 169.254.0.0/16 (IPv4 link-local, includes cloud metadata 169.254.169.254) is always refused. 100.64.0.0/10 (CGNAT) is treated as public, so it needs the full three-part gate. |
+| D5 | "Top ports" preset. | A curated `common` preset of well-known service ports, documented as curated, not frequency-ranked. |
+| D6 | Self-signed detection. | Report "self-issued" (issuer equals subject) and "signature verifies against its own key" as two separate facts, using the `cryptography` API for the signature check. |
+
+Also decided:
+
+- ATT&CK: no mapping in v1.0 (an open port is not an observed technique). Findings carry
+  evidence text and, only where precise, a CWE or RFC reference.
+- Connect timeout: the 3 s proposal in section 4.6 stands until it is measured in Phase 3
+  (see risk R2).
 
 ## 1. Architecture
 
