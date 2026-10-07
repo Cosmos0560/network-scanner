@@ -343,7 +343,9 @@ def _shortest_cycle(adjacency: dict[str, list[str]], component: list[str]) -> li
             if neighbour not in previous:
                 previous[neighbour] = node
                 queue.append(neighbour)
-    raise AssertionError("a strongly connected component of size > 1 contains a cycle")
+    raise AssertionError(
+        "a strongly connected component of size > 1 contains a cycle"
+    )  # pragma: no cover  (invariant)
 
 
 def _cycle_violations(edges: Edges, code: str, noun: str) -> list[Violation]:

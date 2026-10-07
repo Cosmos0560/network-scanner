@@ -494,3 +494,17 @@ def test_main_fails_on_a_planted_cycle(tmp_path: Path, capsys: pytest.CaptureFix
     src = make_tree(tmp_path, {"core/a.py": "from . import b\n", "core/b.py": "from . import a\n"})
     assert arch.main([str(src)]) == 1
     assert "import_cycle" in capsys.readouterr().out
+
+
+def test_a_diamond_shaped_cycle_is_reported_once(tmp_path: Path) -> None:
+    src = make_tree(
+        tmp_path,
+        {
+            "core/a.py": "from . import b, c\n",
+            "core/b.py": "from . import d\n",
+            "core/c.py": "from . import d\n",
+            "core/d.py": "from . import a\n",
+        },
+    )
+    [violation] = arch.check_tree(src)
+    assert violation.message.count("->") == 3
