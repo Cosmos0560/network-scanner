@@ -13,10 +13,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 import re
-from pathlib import Path
-from typing import Any, TextIO
+from typing import Any
 
 from network_scanner import __version__
+from network_scanner.cli.common import emit, local_path
 from network_scanner.cli.environment import Environment
 from network_scanner.core.errors import (
     ExitCode,
@@ -36,7 +36,6 @@ from network_scanner.ports.spec import parse_ports
 from network_scanner.scope.policy import ScopeOptions, plan_targets
 from network_scanner.scope.scopefile import load_scope_file
 
-MAX_PATH_CHARS = 4096
 PROMPT_LIST = 10
 _COUNT = re.compile(r"[0-9]{1,6}")
 _SECONDS = re.compile(r"[0-9]{1,5}(\.[0-9]{1,3})?")
@@ -54,17 +53,6 @@ def _seconds(text: str) -> float:
     return float(text)
 
 
-def _local_path(text: str) -> Path:
-    """A local file path. UNC, device and URL forms are refused before anything is opened."""
-    if not text or len(text) > MAX_PATH_CHARS or "\x00" in text:
-        raise argparse.ArgumentTypeError("not a usable file path")
-    if all(char in "/\\" for char in text[:2]) and len(text) >= 2:
-        raise argparse.ArgumentTypeError("network and device paths are not accepted")
-    if "://" in text:
-        raise argparse.ArgumentTypeError("URLs are not accepted, only local files")
-    return Path(text)
-
-
 def add_scan_parser(subparsers: Any) -> None:
     scan = subparsers.add_parser(
         "scan",
@@ -79,7 +67,7 @@ def add_scan_parser(subparsers: Any) -> None:
     scan.add_argument("targets", nargs="+", metavar="TARGET", help="IP, CIDR, range or hostname")
     scan.add_argument("--ports", default="common", metavar="SPEC", help="default: common")
     scan.add_argument("--allow-public", action="store_true")
-    scan.add_argument("--scope-file", type=_local_path, metavar="PATH")
+    scan.add_argument("--scope-file", type=local_path, metavar="PATH")
     scan.add_argument("--yes", action="store_true", help="confirm public targets in advance")
     scan.add_argument("--format", choices=("table", "json"), default="table")
     scan.add_argument("--concurrency", type=_count, metavar="N")
@@ -94,12 +82,6 @@ def add_scan_parser(subparsers: Any) -> None:
         ),
     )
     scan.add_argument("--total-timeout", type=_seconds, metavar="SECONDS")
-
-
-def _emit(stream: TextIO, text: str) -> None:
-    """Write ASCII only, so no console code page can make the write fail."""
-    stream.write(text.encode("ascii", "backslashreplace").decode("ascii"))
-    stream.flush()
 
 
 def _limits(args: argparse.Namespace) -> Limits:
@@ -135,7 +117,7 @@ async def _plan(
 def _confirm(public: tuple[str, ...], env: Environment) -> None:
     shown = ", ".join(public[:PROMPT_LIST])
     more = f" and {len(public) - PROMPT_LIST} more" if len(public) > PROMPT_LIST else ""
-    _emit(env.stderr, f"{len(public)} public address(es) will be scanned: {shown}{more}\n")
+    emit(env.stderr, f"{len(public)} public address(es) will be scanned: {shown}{more}\n")
     try:
         answer = env.ask("Type 'yes' to scan them: ")
     except EOFError:
@@ -179,12 +161,12 @@ def _run(args: argparse.Namespace, env: Environment) -> int:
         _confirm(public, env)
     outcome = asyncio.run(_scan(targets, ports, options, limits, env))
 
-    _emit(env.stdout, _render(outcome.report, args.format))
+    emit(env.stdout, _render(outcome.report, args.format))
     if outcome.status is ScanStatus.INTERRUPTED:
-        _emit(env.stderr, "interrupted: the report above is partial\n")
+        emit(env.stderr, "interrupted: the report above is partial\n")
         return int(ExitCode.INTERRUPTED)
     if outcome.status is ScanStatus.TIMED_OUT:
-        _emit(env.stderr, "the total timeout was reached: the report above is partial\n")
+        emit(env.stderr, "the total timeout was reached: the report above is partial\n")
         return int(ExitCode.RUNTIME)
     return int(ExitCode.OK)
 
@@ -193,18 +175,18 @@ def run_scan_command(args: argparse.Namespace, env: Environment) -> int:
     try:
         return _run(args, env)
     except KeyboardInterrupt:
-        _emit(env.stderr, "interrupted before the scan started\n")
+        emit(env.stderr, "interrupted before the scan started\n")
         return int(ExitCode.INTERRUPTED)
     except ScopeRefusal as refusal:
-        _emit(env.stderr, f"refused: {refusal}\n")
+        emit(env.stderr, f"refused: {refusal}\n")
         return int(ExitCode.USAGE)
     except UsageError as error:
-        _emit(env.stderr, f"error: {error}\n")
+        emit(env.stderr, f"error: {error}\n")
         return int(ExitCode.USAGE)
     except NetworkScannerError as error:
-        _emit(env.stderr, f"error: {sanitize_text(str(error), max_chars=300).text}\n")
+        emit(env.stderr, f"error: {sanitize_text(str(error), max_chars=300).text}\n")
         return int(ExitCode.RUNTIME)
     except Exception as error:
         message = sanitize_text(str(error), max_chars=300).text
-        _emit(env.stderr, f"internal error: {type(error).__name__}: {message}\n")
+        emit(env.stderr, f"internal error: {type(error).__name__}: {message}\n")
         return int(ExitCode.RUNTIME)

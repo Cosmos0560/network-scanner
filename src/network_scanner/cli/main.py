@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from typing import NoReturn
 
 from network_scanner import __version__
+from network_scanner.cli.commands.rules import add_rules_parser, run_rules_command
 from network_scanner.cli.commands.scan import add_scan_parser, run_scan_command
 from network_scanner.cli.environment import Environment, default_environment
 from network_scanner.core.errors import ExitCode
@@ -35,6 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
     add_scan_parser(subparsers)
+    add_rules_parser(subparsers)
     return parser
 
 
@@ -48,5 +50,7 @@ def main(argv: Sequence[str] | None = None, *, environment: Environment | None =
         return code if isinstance(code, int) else int(ExitCode.USAGE)
     if args.command == "scan":
         return run_scan_command(args, environment or default_environment())
+    if args.command == "rules":
+        return run_rules_command(args, environment or default_environment())
     parser.print_help()
     return int(ExitCode.USAGE)
