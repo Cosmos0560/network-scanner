@@ -9,7 +9,7 @@
 # finding, whatever the severity.
 #
 # Conditions: service, tls_version_in, tls_expired, tls_hostname_mismatch, tls_self_issued,
-# tls_unreadable (flags must be true). Evidence fields are listed in docs/architecture.md.
+# tls_unreadable (flags must be true). Evidence fields are listed in docs/rules.md.
 # References are CWE ids and RFC numbers only, and only where they are precise.
 # There is no ATT&CK mapping: an open port is not an observed technique.
 schema_version: 1

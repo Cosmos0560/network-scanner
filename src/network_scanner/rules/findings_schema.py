@@ -241,12 +241,12 @@ def parse_finding_rules(text: str) -> FindingRuleSet:
 
 
 def evidence_fields_markdown() -> str:
-    """The evidence fields as the list docs/architecture.md must contain."""
+    """The evidence fields as the list docs/rules.md must contain."""
     return ", ".join(f"`{{{name}}}`" for name in sorted(EVIDENCE_FIELDS))
 
 
 def markdown_table(rules: FindingRuleSet) -> str:
-    """The rules as the Markdown table docs/architecture.md must contain."""
+    """The rules as the Markdown table docs/rules.md must contain."""
     lines = [
         "| Rule | Severity | Confidence | References | Fires when |",
         "|------|----------|------------|------------|------------|",
