@@ -416,9 +416,11 @@ def outcome_with(status: ScanStatus) -> Callable[..., Any]:
         tool_version=__version__,
         started_at=STARTED,
         complete=status is ScanStatus.COMPLETED,
+        probed=False,
         limits=DEFAULT_LIMITS,
         targets=(),
         results=(),
+        observations=(),
         findings=(),
     )
 

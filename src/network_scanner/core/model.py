@@ -142,19 +142,24 @@ class Observation:
 
 
 @dataclass(frozen=True, slots=True)
-class PortObservation:
-    """What probing an open port showed."""
-
-    address: str
-    port: int
-    observation: Observation
-
-
-@dataclass(frozen=True, slots=True)
 class Service:
     name: str
     rule_id: str
     confidence: Confidence
+
+
+@dataclass(frozen=True, slots=True)
+class PortObservation:
+    """What probing an open port showed, and the service the fingerprint rules made of it.
+
+    The engine fills `observation`; `service` stays None until the rules have been applied
+    (and also when no rule matched).
+    """
+
+    address: str
+    port: int
+    observation: Observation
+    service: Service | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,9 +180,11 @@ class ScanReport:
     tool_version: str
     started_at: str
     complete: bool
+    probed: bool  # open ports were inspected (False for a connect-only scan)
     limits: Limits
     targets: tuple[ResolvedTarget, ...]
     results: tuple[PortResult, ...]
+    observations: tuple[PortObservation, ...]  # one per open port when `probed`
     findings: tuple[Finding, ...]
 
 
@@ -202,6 +209,7 @@ class Drift:
     new: tuple[BaselineEntry, ...]
     closed: tuple[BaselineEntry, ...]
     changed: tuple[tuple[BaselineEntry, BaselineEntry], ...]  # (before, after)
+    not_scanned: tuple[BaselineEntry, ...]  # in the baseline, but this scan did not probe them
 
 
 def to_jsonable(value: Any) -> Any:

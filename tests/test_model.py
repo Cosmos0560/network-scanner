@@ -37,12 +37,14 @@ def make_report() -> ScanReport:
         tool_version="0.1.0",
         started_at="2026-01-01T00:00:00+00:00",
         complete=True,
+        probed=False,
         limits=DEFAULT_LIMITS,
         targets=(ResolvedTarget("127.0.0.1", "127.0.0.1", Family.IPV4, spec),),
         results=(
             PortResult("127.0.0.1", 22, PortState.OPEN, None),
             PortResult("127.0.0.1", 23, PortState.CLOSED, NetErrorCode.REFUSED),
         ),
+        observations=(),
         findings=(
             Finding(
                 id="X-1",
@@ -150,7 +152,7 @@ def test_baseline_and_drift_serialise() -> None:
     old = BaselineEntry("10.0.0.1", 22, "ssh")
     new = BaselineEntry("10.0.0.1", 22, "telnet")
     baseline = Baseline(SCHEMA_VERSION, "2026-01-01T00:00:00+00:00", (old,))
-    drift = Drift(new=(), closed=(), changed=((old, new),))
+    drift = Drift(new=(), closed=(), changed=((old, new),), not_scanned=())
     assert to_jsonable(baseline)["entries"] == [
         {"address": "10.0.0.1", "port": 22, "service": "ssh"}
     ]

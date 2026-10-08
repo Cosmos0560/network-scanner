@@ -158,14 +158,17 @@ async def run_scan(
 
     collected.sort(key=lambda item: (item[0], item[1]))
     inspected.sort(key=lambda item: (item[0], item[1]))
+    observations = tuple(found for _, _, found in inspected)
     report = ScanReport(
         schema_version=SCHEMA_VERSION,
         tool_version=tool_version,
         started_at=started_at,
         complete=status is ScanStatus.COMPLETED,
+        probed=inspector is not None,
         limits=limits,
         targets=tuple(targets),
         results=tuple(result for _, _, result in collected),
+        observations=observations,
         findings=(),
     )
-    return ScanOutcome(report, status, tuple(found for _, _, found in inspected))
+    return ScanOutcome(report, status, observations)

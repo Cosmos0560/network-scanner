@@ -37,9 +37,11 @@ def report(
         tool_version="1.2.3",
         started_at="2026-01-01T12:00:00+00:00",
         complete=complete,
+        probed=False,
         limits=DEFAULT_LIMITS,
         targets=tuple(targets),
         results=tuple(results),
+        observations=(),
         findings=(),
     )
 
@@ -113,9 +115,11 @@ def test_the_json_is_the_whole_report_in_model_order() -> None:
         "tool_version",
         "started_at",
         "complete",
+        "probed",
         "limits",
         "targets",
         "results",
+        "observations",
         "findings",
     ]
     assert data["results"][2] == {
