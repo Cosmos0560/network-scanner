@@ -272,6 +272,7 @@ total timeout and an interrupted inspection never loses the open result.
 | `MAX_EVIDENCE_CHARS` | 400 | Sanitised evidence text kept per finding. |
 | `MAX_BASELINE_BYTES` | 16777216 | A larger baseline file is refused without being parsed. |
 | `MAX_BASELINE_ENTRIES` | 100000 | Entries in a baseline (the most one scan can probe). |
+| `MAX_OUTPUT_STRING_CHARS` | 4096 | Longest string in a rendered report; a longer one is cut. |
 <!-- END GENERATED: probe_limits -->
 
 The banner wait (`banner_timeout_s`), the banner byte cap (`banner_max_bytes`) and the probe
