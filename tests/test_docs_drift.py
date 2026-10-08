@@ -88,3 +88,64 @@ def test_measured_numbers_appear_only_in_the_performance_doc() -> None:
         name: pattern.findall(text) for name, text in others.items() if pattern.search(text)
     }
     assert offenders == {}
+
+
+PHASE4_LIMITS = (
+    "MAX_BANNER_CHARS",
+    "HTTP_HEAD_TIMEOUT_S",
+    "MAX_HTTP_HEAD_BYTES",
+    "MAX_HTTP_HEADER_LINES",
+    "MAX_HTTP_SERVER_CHARS",
+    "TLS_HANDSHAKE_TIMEOUT_S",
+    "CLOSE_TIMEOUT_S",
+    "ABORT_GRACE_S",
+    "MAX_CERT_DER_BYTES",
+    "MAX_CERT_FIELD_CHARS",
+    "MAX_SAN_ENTRIES",
+    "MAX_RULE_FILE_BYTES",
+    "MAX_RULES",
+    "MAX_RULE_FILES",
+    "MAX_REGEX_PATTERN_CHARS",
+    "MAX_REGEX_INPUT_CHARS",
+    "MAX_REGEX_REPEAT",
+    "MAX_REGEX_COST",
+    "MAX_REGEX_GROUP_DEPTH",
+)
+
+
+def test_the_probe_limits_table_matches_core_limits() -> None:
+    from network_scanner.core import limits
+
+    table = generated(read("architecture.md"), "probe_limits")
+    rows = re.findall(r"^\| `([A-Z_]+)` \| ([0-9.]+) \|", table, flags=re.MULTILINE)
+    assert [name for name, _ in rows] == list(PHASE4_LIMITS)
+    for name, shown in rows:
+        value = getattr(limits, name)
+        assert float(shown) == float(value), name
+
+
+def test_every_fixed_bound_in_core_limits_is_either_documented_or_listed_as_older() -> None:
+    """A new fixed bound cannot be added to core/limits.py without a decision about the docs."""
+    from network_scanner.core import limits
+
+    older = {
+        "MAX_TARGET_CHARS",
+        "MAX_DNS_ANSWERS",
+        "RESOLVE_TIMEOUT_S",
+        "MAX_SCOPE_FILE_BYTES",
+        "MAX_SCOPE_ENTRIES",
+        "MAX_PORT_SPEC_CHARS",
+        "MAX_PROBES_PER_RUN",
+    }
+    constants = {
+        name
+        for name, value in vars(limits).items()
+        if name.isupper() and isinstance(value, int | float) and name not in {"CEILINGS"}
+    }
+    assert constants - older - set(PHASE4_LIMITS) == set()
+
+
+def test_the_documented_probe_defaults_match_the_run_limits() -> None:
+    text = " ".join(read("architecture.md").split())
+    assert "`probes_per_open_port` (3 at most" in text
+    assert DEFAULT_LIMITS.probes_per_open_port == CEILINGS["probes_per_open_port"] == 3

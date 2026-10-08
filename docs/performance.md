@@ -88,3 +88,56 @@ python scripts/measure_connect.py --samples 10 --concurrent 64
 ```
 
 Expect run times of about a minute on Windows because of the delay itself.
+
+## Regular expressions: worst accepted patterns (Phase 4)
+
+Rule files contain regular expressions, and Python's `re` has no timeout. The validator
+(`src/network_scanner/rules/regex_safety.py`, described in [architecture.md](architecture.md))
+accepts a pattern only if its estimated backtracking stays within a budget, and a pattern only
+ever sees the first 256 characters of its input. Question: how slow can a pattern that is
+accepted be, on the worst input?
+
+### Method
+
+Each pattern below is accepted by the validator, was compiled with `compile_safe`, and was run
+with `search_bounded` on an input chosen so that the match fails after as much backtracking as
+the pattern allows. Nine runs each, timed with `time.perf_counter()` around the call, sorted.
+
+```python
+import time
+from network_scanner.rules.regex_safety import compile_safe, search_bounded
+
+compiled = compile_safe(r".*.*x")
+runs = []
+for _ in range(9):
+    start = time.perf_counter()
+    search_bounded(compiled, "a" * 256)
+    runs.append((time.perf_counter() - start) * 1000)
+runs.sort()
+print(runs[0], runs[4], runs[-1])
+```
+
+### Results
+
+Same machine as above (Windows 11, Python 3.13.14, 2026-10-08). Milliseconds.
+
+| Pattern | Input | Min | Median | Max |
+|---------|-------|-----|--------|-----|
+| `.*.*x` | 256 x `a` | 2.4 | 2.8 | 4.6 |
+| `[a-z]*[a-z]*!` | 256 x `a` | 5.6 | 6.0 | 7.6 |
+| `(a\|a)` x 16, then `b` | 16 x `a`, then `c` | 2.4 | 2.4 | 2.7 |
+| `a?` x 16, `a` x 16, then `b` | 16 x `a` | 0.0 | 0.0 | 0.0 |
+
+The last row is below the resolution of the print format (0.05 ms); `re` rejects that input
+early.
+
+### What this shows, and what it does not
+
+- Patterns the validator accepts cost a few milliseconds per match in the worst cases tried.
+  An earlier version of the check, which only limited the number of unbounded repeats, accepted
+  `.*.*.*x`, which took about 200 ms per match on the same input; that is why the check now
+  multiplies every choice into a budget instead.
+- This is four hand-picked patterns, not a proof. The bound comes from the cost estimate and
+  the input cap; these numbers only show that the estimate is not wildly optimistic for the
+  shapes that are known to be dangerous. Other Python versions and other `re` builds were not
+  measured.

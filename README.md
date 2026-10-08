@@ -9,12 +9,18 @@ networks you are authorized to test.
 ## Status
 
 Under construction. The TCP connect scan works, checked end to end against loopback
-listeners by [tests/test_e2e.py](tests/test_e2e.py); there is no service fingerprinting,
+listeners by [tests/test_e2e.py](tests/test_e2e.py). Service fingerprinting exists as building
+blocks that `scan` does not use yet: a bounded inspector (a passive banner read, one HTTP `HEAD`
+request, a TLS handshake that reads the certificate without validating it), fingerprint rules,
+and `network-scanner rules validate`. They are checked end to end against a loopback lab by
+[tests/test_fingerprint_e2e.py](tests/test_fingerprint_e2e.py) and described in
+[docs/architecture.md](docs/architecture.md#fingerprinting-and-tls-phase-4). There is no
 baseline or drift detection yet.
 
 ```
 network-scanner --version
 network-scanner scan 127.0.0.1 --ports 22,80,443
+network-scanner rules validate
 ```
 
 The scope rules (what is scanned by default and what needs explicit permission) are in
