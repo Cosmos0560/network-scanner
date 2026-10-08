@@ -16,6 +16,12 @@ a policy violation and propagates after the remaining workers have been cancelle
 
 Results are sorted by (position of the target in the plan, port), so the report does not
 depend on which probe finished first.
+
+Inspection. If an `Inspector` is given, a worker that finds a port open hands it to the
+inspector (banner, HTTP HEAD, TLS; see `inspect.py`) before taking the next probe, so the
+inspection counts against the same concurrency bound and the same total timeout. The open
+result is recorded first, so an interrupted inspection never loses it. Without an inspector
+the behaviour is exactly the plain connect scan.
 """
 
 from __future__ import annotations
@@ -26,10 +32,11 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from network_scanner.core.errors import ConnectError, LimitError, NetErrorCode
-from network_scanner.core.interfaces import Clock, Connector, RateLimiter
+from network_scanner.core.interfaces import Clock, Connector, Inspector, RateLimiter
 from network_scanner.core.limits import MAX_PROBES_PER_RUN, Limits
 from network_scanner.core.model import (
     SCHEMA_VERSION,
+    PortObservation,
     PortResult,
     PortState,
     ResolvedTarget,
@@ -49,6 +56,7 @@ class ScanStatus(StrEnum):
 class ScanOutcome:
     report: ScanReport
     status: ScanStatus
+    observations: tuple[PortObservation, ...] = ()  # only for ports found open and inspected
 
 
 _STATE_FOR_ERROR = {
@@ -111,12 +119,14 @@ async def run_scan(
     limiter: RateLimiter,
     clock: Clock,
     tool_version: str,
+    inspector: Inspector | None = None,
 ) -> ScanOutcome:
     """Probe every (target, port) pair and return the report and why the run ended."""
     _check_bounds(targets, ports, limits)
     started_at = clock.utc_now().isoformat()
     work = ((index, port) for index in range(len(targets)) for port in ports)
     collected: list[tuple[int, int, PortResult]] = []
+    inspected: list[tuple[int, int, PortObservation]] = []
 
     async def worker() -> None:
         for index, port in work:  # plain iteration: nothing awaits inside the generator
@@ -124,6 +134,9 @@ async def run_scan(
                 targets[index], port, limits=limits, connector=connector, limiter=limiter
             )
             collected.append((index, port, result))
+            if inspector is not None and result.state is PortState.OPEN:
+                observation = await inspector.inspect(targets[index], port)
+                inspected.append((index, port, PortObservation(result.address, port, observation)))
 
     probes = len(targets) * len(ports)
     workers = [asyncio.create_task(worker()) for _ in range(min(limits.concurrency, probes))]
@@ -144,6 +157,7 @@ async def run_scan(
         await asyncio.gather(*workers, return_exceptions=True)
 
     collected.sort(key=lambda item: (item[0], item[1]))
+    inspected.sort(key=lambda item: (item[0], item[1]))
     report = ScanReport(
         schema_version=SCHEMA_VERSION,
         tool_version=tool_version,
@@ -154,4 +168,4 @@ async def run_scan(
         results=tuple(result for _, _, result in collected),
         findings=(),
     )
-    return ScanOutcome(report, status)
+    return ScanOutcome(report, status, tuple(found for _, _, found in inspected))

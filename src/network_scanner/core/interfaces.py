@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol
 
-from network_scanner.core.model import TlsInfo
+from network_scanner.core.model import Observation, ResolvedTarget, TlsInfo
 
 
 class Clock(Protocol):
@@ -60,3 +60,9 @@ class TlsProber(Protocol):
         self, address: str, port: int, *, server_name: str | None, timeout: float
     ) -> TlsInfo:
         """Perform a TLS handshake without verification and describe the certificate."""
+
+
+class Inspector(Protocol):
+    async def inspect(self, target: ResolvedTarget, port: int) -> Observation:
+        """Probe an open port and describe what it said. Opens at most the configured number
+        of connections, all through the connector, and never raises for bad service data."""

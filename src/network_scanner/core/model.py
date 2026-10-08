@@ -142,6 +142,15 @@ class Observation:
 
 
 @dataclass(frozen=True, slots=True)
+class PortObservation:
+    """What probing an open port showed."""
+
+    address: str
+    port: int
+    observation: Observation
+
+
+@dataclass(frozen=True, slots=True)
 class Service:
     name: str
     rule_id: str
