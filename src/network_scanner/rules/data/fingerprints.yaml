@@ -1,0 +1,77 @@
+# Fingerprint rules: what a service says about itself -> a service name.
+#
+# A rule applies when ALL of its `match` conditions hold. When several rules apply, the one
+# with the highest confidence wins; a tie goes to the rule that comes first in this file.
+# Confidence is how strongly the evidence points at the service name, not a severity.
+#
+# Conditions:
+#   banner_regex       searched in the sanitised text the service sent unprompted
+#   http_server_regex  searched in the Server header of an HTTP response
+#   http_response      a valid HTTP/1.0 or HTTP/1.1 status line was received
+#   tls                a TLS handshake completed
+# Regular expressions use a small safe subset (see docs/architecture.md); the file is
+# checked by `network-scanner rules validate`.
+schema_version: 1
+rules:
+  - id: ssh-identification
+    service: ssh
+    confidence: high
+    description: SSH identification string, SSH-protoversion-softwareversion (RFC 4253 section 4.2).
+    match:
+      banner_regex: '^SSH-[0-9]\.[0-9]+-'
+
+  - id: vnc-protocol-version
+    service: vnc
+    confidence: high
+    description: RFB ProtocolVersion message, RFB xxx.yyy (RFC 6143 section 7.1.1).
+    match:
+      banner_regex: '^RFB [0-9]{3}\.[0-9]{3}'
+
+  - id: http-status-line
+    service: http
+    confidence: high
+    description: A valid HTTP/1.x status line in reply to a HEAD request.
+    match:
+      http_response: true
+
+  - id: tls-handshake
+    service: tls
+    confidence: high
+    description: A TLS handshake completed, so the port speaks TLS (the application protocol is not probed).
+    match:
+      tls: true
+
+  - id: ftp-greeting
+    service: ftp
+    confidence: medium
+    description: A 220 greeting that names FTP (RFC 959 section 4.2).
+    match:
+      banner_regex: '^220[ -].*[Ff][Tt][Pp]'
+
+  - id: smtp-greeting
+    service: smtp
+    confidence: medium
+    description: A 220 greeting that names SMTP or ESMTP (RFC 5321 section 4.2).
+    match:
+      banner_regex: '^220[ -].*SMTP'
+
+  - id: pop3-greeting
+    service: pop3
+    confidence: medium
+    description: A +OK greeting (RFC 1939 section 4).
+    match:
+      banner_regex: '^\+OK'
+
+  - id: imap-greeting
+    service: imap
+    confidence: medium
+    description: An untagged OK greeting (RFC 3501 section 7.1.1).
+    match:
+      banner_regex: '^\* OK'
+
+  - id: telnet-login-prompt
+    service: telnet
+    confidence: low
+    description: The text ends with a login prompt. Weak evidence, since other services print one too.
+    match:
+      banner_regex: '[Ll]ogin:$'

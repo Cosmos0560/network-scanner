@@ -84,6 +84,7 @@ class FakeTlsProber:
             not_before=None,
             not_after=None,
             san=(),
+            san_truncated=False,
             sha256=None,
             self_issued=None,
             self_signature_valid=None,

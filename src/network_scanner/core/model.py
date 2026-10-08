@@ -121,7 +121,8 @@ class TlsInfo:
     issuer: str | None
     not_before: str | None
     not_after: str | None
-    san: tuple[str, ...]
+    san: tuple[str, ...]  # "DNS:name" and "IP:address" entries
+    san_truncated: bool  # more entries existed than `MAX_SAN_ENTRIES`
     sha256: str | None
     self_issued: bool | None
     self_signature_valid: bool | None
