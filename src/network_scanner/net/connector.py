@@ -13,9 +13,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import socket
+import ssl
 
 from network_scanner.core.errors import ConnectError, NetErrorCode, ReasonCode, ScopeRefusal
-from network_scanner.core.interfaces import Connection
+from network_scanner.core.limits import CLOSE_TIMEOUT_S
 from network_scanner.core.model import Family
 from network_scanner.net.oserrors import normalise
 from network_scanner.scope.parser import parse_ip
@@ -45,9 +46,38 @@ class AsyncioConnection:
             raise ConnectError(normalise(exc)) from None
 
     async def close(self) -> None:
+        """Close politely; a peer that has not finished within `CLOSE_TIMEOUT_S` is aborted."""
         self._writer.close()
-        with contextlib.suppress(OSError):  # a reset peer: the connection is closed either way
-            await self._writer.wait_closed()
+        try:
+            async with asyncio.timeout(CLOSE_TIMEOUT_S):
+                await self._writer.wait_closed()
+        except TimeoutError:
+            await self.abort()
+        except OSError:
+            pass  # a reset peer: the connection is closed either way
+
+    async def abort(self) -> None:
+        """Drop the connection at once, without waiting for the peer (used after failures)."""
+        self._writer.transport.abort()
+        with contextlib.suppress(OSError, TimeoutError):
+            async with asyncio.timeout(CLOSE_TIMEOUT_S):
+                await self._writer.wait_closed()
+
+    async def start_tls(
+        self, context: ssl.SSLContext, *, server_name: str | None, handshake_timeout: float
+    ) -> None:
+        """Upgrade this connection to TLS in place. Raises `OSError` (including `ssl.SSLError`)."""
+        await self._writer.start_tls(
+            context, server_hostname=server_name, ssl_handshake_timeout=handshake_timeout
+        )
+
+    def tls_session(self) -> tuple[str | None, str | None, bytes | None]:
+        """(protocol version, cipher name, DER certificate of the peer) once TLS is running."""
+        ssl_object = self._writer.get_extra_info("ssl_object")
+        if ssl_object is None:
+            return None, None, None
+        cipher = ssl_object.cipher()
+        return ssl_object.version(), (cipher[0] if cipher else None), ssl_object.getpeercert(True)
 
 
 class AsyncioConnector:
@@ -67,7 +97,7 @@ class AsyncioConnector:
             )
         return socket.AF_INET if parsed.family is Family.IPV4 else socket.AF_INET6
 
-    async def connect(self, address: str, port: int, *, timeout: float) -> Connection:
+    async def connect(self, address: str, port: int, *, timeout: float) -> AsyncioConnection:
         family = self._approve(address, port)
         try:
             reader, writer = await asyncio.wait_for(

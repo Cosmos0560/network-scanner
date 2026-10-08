@@ -80,3 +80,85 @@ async def serve(handler: Handler) -> AsyncIterator[Served]:
     finally:
         server.close()
         await server.wait_closed()
+
+
+# -- servers that are hostile to a TLS client ---------------------------------------------------
+
+
+async def garbage_reply(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    """Answers the ClientHello with bytes that are not TLS, then closes."""
+    writer.write(b"\x00\x01\x02garbage that is not a TLS record\xff\xfe" * 4)
+    with contextlib.suppress(OSError):
+        await writer.drain()
+    await _finish(writer)
+
+
+async def tls_alert(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    """Answers with a fatal TLS alert (handshake_failure) record, then closes."""
+    writer.write(b"\x15\x03\x03\x00\x02\x02\x28")
+    with contextlib.suppress(OSError):
+        await writer.drain()
+    await _finish(writer)
+
+
+async def endless_garbage(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    """Never stops sending non-TLS bytes; ends when the client drops the connection."""
+    try:
+        while True:
+            writer.write(b"\xde\xad\xbe\xef" * 1024)
+            await writer.drain()
+    except OSError:
+        pass
+    finally:
+        await _finish(writer)
+
+
+async def partial_tls_record(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    """Sends the start of a TLS handshake record, then goes silent (a slow drip that stops)."""
+    writer.write(b"\x16\x03\x03\x00\x50\x02")
+    with contextlib.suppress(OSError):
+        await writer.drain()
+    try:
+        await reader.read()  # holds the connection open until the peer goes away
+    finally:
+        await _finish(writer)
+
+
+# -- servers that are hostile to a banner reader ------------------------------------------------
+
+
+async def endless_banner(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    """Sends one endless 'line' (no line break), as fast as the client reads."""
+    try:
+        while True:
+            writer.write(b"A" * 1024)
+            await writer.drain()
+    except OSError:
+        pass
+    finally:
+        await _finish(writer)
+
+
+async def slow_drip(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    """Sends one byte every 50 ms and never a line break (the drip is the point of the test)."""
+    try:
+        while True:
+            writer.write(b"x")
+            await writer.drain()
+            await asyncio.sleep(0.05)
+    except OSError:
+        pass
+    finally:
+        await _finish(writer)
+
+
+def fixed_banner(data: bytes) -> Handler:
+    """A server that sends `data` once and closes."""
+
+    async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        writer.write(data)
+        with contextlib.suppress(OSError):
+            await writer.drain()
+        await _finish(writer)
+
+    return handler
