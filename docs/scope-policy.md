@@ -2,8 +2,8 @@
 
 How targets are parsed, classified and approved. Implemented in
 `src/network_scanner/scope/`. Nothing here opens a connection: a plan is complete, and
-every target decided, before the first connection of a run can be made. The command that
-will drive it does not exist yet.
+every target decided, before the first connection of a run can be made. The commands that
+use it are described in [cli.md](cli.md).
 
 The tool is defensive. Scan only networks you own or have written permission to scan;
 unauthorized scanning can be illegal.
@@ -103,7 +103,7 @@ pinned addresses, never the name. One name is resolved at most once per run.
 
 All targets are validated before anything else happens, in this order: grammar and count
 for every target in input order, then every literal address, then the hostnames, then
-confirmation. The first problem aborts the run (exit code 2 once the CLI exists).
+confirmation. The first problem aborts the run (exit code 2).
 
 Tests: `tests/test_scope_policy.py`.
 

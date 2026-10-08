@@ -155,11 +155,40 @@ def test_the_documented_probe_defaults_match_the_run_limits() -> None:
     assert DEFAULT_LIMITS.probes_per_open_port == CEILINGS["probes_per_open_port"] == 3
 
 
-def test_the_finding_rules_table_and_evidence_fields_match_the_code() -> None:
+def fingerprint_rules_table() -> str:
+    """The built-in fingerprint rules as the Markdown table docs/rules.md must contain."""
+    from network_scanner.rules.loader import builtin_fingerprint_rules
+
+    def cell(text: str) -> str:
+        return text.replace("|", r"\|")
+
+    lines = [
+        "| Rule | Service | Confidence | Matches when | Description |",
+        "|------|---------|------------|--------------|-------------|",
+    ]
+    for rule in builtin_fingerprint_rules().rules:
+        conditions = []
+        if rule.banner_regex is not None:
+            conditions.append(f"banner matches `{cell(rule.banner_regex)}`")
+        if rule.http_server_regex is not None:
+            conditions.append(f"Server header matches `{cell(rule.http_server_regex)}`")
+        if rule.http_response:
+            conditions.append("an HTTP status line was received")
+        if rule.tls:
+            conditions.append("a TLS handshake completed")
+        lines.append(
+            f"| `{rule.id}` | {rule.service} | {rule.confidence.value} | "
+            f"{' and '.join(conditions)} | {cell(rule.description)} |"
+        )
+    return "\n".join(lines)
+
+
+def test_the_rule_tables_and_evidence_fields_match_the_code() -> None:
     from network_scanner.rules.findings_schema import evidence_fields_markdown, markdown_table
     from network_scanner.rules.loader import builtin_finding_rules
 
-    document = read("architecture.md")
+    document = read("rules.md")
+    assert generated(document, "fingerprint_rules") == fingerprint_rules_table()
     assert generated(document, "finding_rules") == markdown_table(builtin_finding_rules())
     assert generated(document, "evidence_fields") == evidence_fields_markdown()
 

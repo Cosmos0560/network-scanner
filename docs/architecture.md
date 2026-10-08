@@ -1,8 +1,12 @@
 # Architecture notes
 
-This file records design decisions and the reason for every dependency. It grows with
-the project; the full architecture description is added in a later phase. The approved
-plan is [PLAN.md](../PLAN.md).
+How the project is put together, the decisions behind it, and the reason for every
+dependency. The sections are in the order the phases were built; the approved plan is
+[PLAN.md](../PLAN.md), and where PLAN.md section 0 and an older part of that file disagree,
+section 0 wins. Other references: [cli.md](cli.md) (commands and exit codes),
+[rules.md](rules.md) (rule files and the built-in rules), [scope-policy.md](scope-policy.md),
+[ports.md](ports.md), [threat-model.md](threat-model.md),
+[security-review.md](security-review.md) and [performance.md](performance.md).
 
 ## Layers
 
@@ -195,7 +199,8 @@ same `asyncio.run` interrupt path but not a terminal), and Linux timing.
 
 What an open port says about itself is read by a small inspector, matched against rule files,
 and turned into a service name. The pieces are built and tested end to end against the lab;
-`scan` does not call the inspector yet (see "Known gaps").
+`scan` runs the inspector on every open port unless `--connect-only` is given (see "What
+`scan` does now" in the Phase 5 section).
 
 **Hostile input.** Everything a service sends (banners, HTTP headers, certificates) is
 treated as hostile. Every read is capped in bytes, lines and time by constants in
@@ -353,10 +358,8 @@ temporary directory only while the TLS library loads it, and the directory is de
 (a test checks this). Hostile servers (endless and dripping banners, TLS garbage, alerts,
 handshakes that never finish, escape sequences in banners) are test-only, in `tests/hostile.py`.
 
-### Known gaps
+### Known gaps (Phase 4)
 
-- `scan` does not run the inspector, so its report has no services yet. The report schema
-  has no place for observations; wiring them in belongs with the baseline work.
 - An HTTPS service is identified as TLS. The HTTP `Server` header is read only over plain
   HTTP, and the certificate of the leaf only (no chain is read).
 - Only TLS 1.2 and newer are offered. A server that speaks nothing newer fails the handshake
@@ -404,25 +407,8 @@ stays low confidence whatever its severity.
   `tls_expired`, `tls_hostname_mismatch`, `tls_self_issued`, `tls_unreadable` (each must be
   `true`). `network-scanner rules validate --kind findings [PATH ...]` checks a file.
 
-Facts available to an evidence template:
-
-<!-- BEGIN GENERATED: evidence_fields -->
-`{address}`, `{banner}`, `{http_server}`, `{port}`, `{service}`, `{service_confidence}`, `{service_rule}`, `{tls_cipher}`, `{tls_expired}`, `{tls_hostname_match}`, `{tls_issuer}`, `{tls_not_after}`, `{tls_not_before}`, `{tls_parse_error}`, `{tls_san}`, `{tls_self_issued}`, `{tls_self_signature_valid}`, `{tls_sha256}`, `{tls_subject}`, `{tls_version}`
-<!-- END GENERATED: evidence_fields -->
-
-The built-in rules:
-
-<!-- BEGIN GENERATED: finding_rules -->
-| Rule | Severity | Confidence | References | Fires when |
-|------|----------|------------|------------|------------|
-| `cleartext-telnet` | medium | from the service | CWE-319, RFC 854 | Telnet service (remote login without encryption) |
-| `cleartext-ftp` | low | from the service | CWE-319, RFC 959 | FTP service (control connection not encrypted at connect) |
-| `tls-deprecated-version` | medium | high | RFC 8996 | Deprecated TLS or SSL version negotiated |
-| `tls-certificate-expired` | medium | high | RFC 5280 section 4.1.2.5 | Certificate has expired |
-| `tls-certificate-hostname-mismatch` | medium | high | RFC 9525 | Certificate does not cover the requested name |
-| `tls-certificate-self-issued` | info | high | RFC 5280 | Certificate is self-issued (issuer equals subject) |
-| `tls-certificate-unreadable` | info | high | none | Certificate could not be read |
-<!-- END GENERATED: finding_rules -->
+The facts available to an evidence template and the list of built-in rules are in
+[rules.md](rules.md); both are generated from the code and checked by a drift test.
 
 Each rule has a positive and a negative test (`tests/test_findings.py` fails if one is missing).
 The deprecated-version rule judges only the version actually negotiated, and the scanner offers

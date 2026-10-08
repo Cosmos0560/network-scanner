@@ -1,7 +1,7 @@
 # Port specifications and presets
 
-Implemented in `src/network_scanner/ports/`. The scan command that will use them does not
-exist yet.
+Implemented in `src/network_scanner/ports/`. The `--ports` option of `scan` and of the
+`baseline` commands takes this grammar (see [cli.md](cli.md)).
 
 ## Specification grammar
 
