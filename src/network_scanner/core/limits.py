@@ -57,3 +57,27 @@ MAX_SCOPE_FILE_BYTES = 64 * 1024  # PLAN.md section 4.3
 MAX_SCOPE_ENTRIES = 4096
 MAX_PORT_SPEC_CHARS = 4096
 MAX_PROBES_PER_RUN = 100_000  # targets x ports, so results and work stay bounded
+
+# Reading what a service sends back (Phase 4). Everything a remote service sends is hostile,
+# so every read has a byte cap, a line cap where lines exist, and a deadline. The banner and
+# HTTP deadlines are `Limits.banner_timeout_s`; the banner byte cap is `Limits.banner_max_bytes`.
+MAX_BANNER_CHARS = 256  # sanitised banner text kept per port
+MAX_HTTP_HEAD_BYTES = 4096  # status line and headers; the body is never read
+MAX_HTTP_HEADER_LINES = 64  # header lines looked at; the rest are ignored
+MAX_HTTP_SERVER_CHARS = 200  # sanitised Server header kept
+TLS_HANDSHAKE_TIMEOUT_S = 5.0  # handshake deadline, after the connection is established
+CLOSE_TIMEOUT_S = 1.0  # a polite close waits this long, then the connection is aborted
+MAX_CERT_DER_BYTES = 32 * 1024  # a larger certificate is not parsed at all
+MAX_CERT_FIELD_CHARS = 256  # sanitised subject, issuer and each subjectAltName entry kept
+MAX_SAN_ENTRIES = 64  # subjectAltName entries kept
+
+# Rule files and the regular expressions in them (Phase 4, PLAN.md risk R4).
+MAX_RULE_FILE_BYTES = 64 * 1024
+MAX_RULES = 256  # rules per file
+MAX_RULE_FILES = 32  # files accepted by one `rules validate` call
+MAX_REGEX_PATTERN_CHARS = 200
+MAX_REGEX_INPUT_CHARS = 256  # a pattern is only ever run on this many leading characters
+MAX_REGEX_REPEAT = 255  # largest count in {m,n}
+REGEX_SMALL_REPEAT = 16  # a repeat of at most this many is not counted as "large"
+MAX_REGEX_LARGE_REPEATS = 3  # unbounded or larger repeats allowed in one pattern
+MAX_REGEX_GROUP_DEPTH = 6
