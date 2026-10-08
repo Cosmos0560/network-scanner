@@ -34,6 +34,7 @@ SSH_BANNER = b"SSH-2.0-NetworkScannerLab_1.0\r\n"
 TELNET_BANNER = b"\xff\xfd\x18\xff\xfd\x20\r\nNetwork Scanner Lab (telnet-like)\r\nlogin: "
 HTTP_SERVER = "NetworkScannerLab/1.0"
 MAX_REQUEST_BYTES = 8192
+YIELDS_ON_EXIT = 5
 
 Handler = Callable[[asyncio.StreamReader, asyncio.StreamWriter], Awaitable[None]]
 
@@ -148,6 +149,10 @@ class ServiceLab:
     ) -> None:
         for server in self._servers:
             server.close()
+        for _ in range(
+            YIELDS_ON_EXIT
+        ):  # let connections accepted a moment ago reach their handlers
+            await asyncio.sleep(0)
         for writer in list(self._writers):
             writer.transport.abort()
         if self._tasks:

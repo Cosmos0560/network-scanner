@@ -14,15 +14,16 @@ import pytest
 
 from fakes import Behaviour, FakeResolver, LoopClock, ScriptedConnector
 from network_scanner import __version__
-from network_scanner.cli.commands import scan as scan_module
+from network_scanner.cli import pipeline as pipeline_module
 from network_scanner.cli.environment import Environment
 from network_scanner.cli.main import main
-from network_scanner.core.errors import ResolutionError
+from network_scanner.core.errors import ConnectError, NetErrorCode, ResolutionError
 from network_scanner.core.interfaces import Connection
 from network_scanner.core.limits import DEFAULT_LIMITS
 from network_scanner.core.model import SCHEMA_VERSION, ScanReport
 from network_scanner.engine.scan import ScanOutcome, ScanStatus
 from network_scanner.scope.policy import ScopeOptions
+from probe_fakes import FakeTlsProber
 
 pytestmark = pytest.mark.leakcheck
 
@@ -43,8 +44,13 @@ class Harness:
     asked: list[str] = field(default_factory=list)
     factory_options: list[ScopeOptions] = field(default_factory=list)
 
+    connect_only: bool = True  # most tests are about the connect scan; others turn this off
+
     def run(self, *argv: str) -> int:
-        return main(list(argv), environment=self.env)
+        args = list(argv)
+        if self.connect_only and args[:1] == ["scan"]:
+            args.append("--connect-only")
+        return main(args, environment=self.env)
 
 
 def harness(
@@ -79,6 +85,7 @@ def harness(
         clock=LoopClock(),
         sleeper=InstantSleeper(),
         connector_factory=factory,
+        tls_prober_factory=lambda options, clock: FakeTlsProber(ConnectError(NetErrorCode.OTHER)),
     )
     holder["h"] = Harness(env, out, err, shared)
     return holder["h"]
@@ -441,7 +448,7 @@ def outcome_with(status: ScanStatus) -> Callable[..., Any]:
 def test_the_scan_status_decides_the_exit_code_and_the_report_is_still_printed(
     monkeypatch: pytest.MonkeyPatch, status: ScanStatus, code: int, message: str
 ) -> None:
-    monkeypatch.setattr(scan_module, "_scan", outcome_with(status))
+    monkeypatch.setattr(pipeline_module, "scan_prepared", outcome_with(status))
     h = harness()
     assert h.run("scan", "127.0.0.1", "--ports", "22") == code
     assert "network-scanner" in h.out.getvalue()
@@ -454,7 +461,7 @@ def test_unexpected_errors_exit_3_without_a_traceback_or_control_characters(
     async def boom(*args: Any, **kwargs: Any) -> ScanOutcome:
         raise RuntimeError("boom\x1b[31m\r\nsecond line")
 
-    monkeypatch.setattr(scan_module, "_scan", boom)
+    monkeypatch.setattr(pipeline_module, "scan_prepared", boom)
     h = harness()
     assert h.run("scan", "127.0.0.1", "--ports", "22") == 3
     assert h.err.getvalue().startswith("internal error: RuntimeError: boom")
@@ -466,7 +473,7 @@ def test_our_own_runtime_errors_exit_3(monkeypatch: pytest.MonkeyPatch) -> None:
     async def failing(*args: Any, **kwargs: Any) -> ScanOutcome:
         raise ResolutionError("the resolver is broken")
 
-    monkeypatch.setattr(scan_module, "_scan", failing)
+    monkeypatch.setattr(pipeline_module, "scan_prepared", failing)
     h = harness()
     assert h.run("scan", "127.0.0.1", "--ports", "22") == 3
     assert h.err.getvalue() == "error: the resolver is broken\n"

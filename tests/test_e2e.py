@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 
 from fakes import FakeResolver
-from network_scanner.cli.environment import Environment
+from network_scanner.cli.environment import Environment, real_tls_prober
 from network_scanner.cli.main import main
 from network_scanner.lab.servers import LabError, PlainLab
 from network_scanner.net.connector import AsyncioConnector
@@ -36,13 +36,17 @@ def real_environment() -> tuple[Environment, io.StringIO, io.StringIO]:
         clock=SystemClock(),
         sleeper=AsyncioSleeper(),
         connector_factory=AsyncioConnector,
+        tls_prober_factory=real_tls_prober,
     )
     return env, out, err
 
 
 def scan_json(*argv: str) -> tuple[int, dict[str, Any], str]:
     env, out, err = real_environment()
-    code = main(["scan", *argv, "--format", "json", "--connect-timeout", "10"], environment=env)
+    code = main(
+        ["scan", *argv, "--format", "json", "--connect-timeout", "10", "--connect-only"],
+        environment=env,
+    )
     return code, json.loads(out.getvalue()), err.getvalue()
 
 
@@ -71,7 +75,8 @@ def test_the_table_report_of_a_real_scan() -> None:
         env, out, err = real_environment()
         ports = f"{lab.open_ports[0]},{lab.closed_ports[0]}"
         code = main(
-            ["scan", "127.0.0.1", "--ports", ports, "--connect-timeout", "10"], environment=env
+            ["scan", "127.0.0.1", "--ports", ports, "--connect-timeout", "10", "--connect-only"],
+            environment=env,
         )
         lines = out.getvalue().splitlines()
         assert code == 0

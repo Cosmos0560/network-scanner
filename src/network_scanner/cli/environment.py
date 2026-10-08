@@ -7,10 +7,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TextIO
 
-from network_scanner.core.interfaces import Clock, Connector, Resolver, Sleeper
+from network_scanner.core.interfaces import Clock, Connector, Resolver, Sleeper, TlsProber
 from network_scanner.net.connector import AsyncioConnector
 from network_scanner.net.resolver import SystemResolver
 from network_scanner.net.system import AsyncioSleeper, SystemClock
+from network_scanner.net.tls import AsyncioTlsProber
 from network_scanner.scope.policy import ScopeOptions
 
 
@@ -24,6 +25,12 @@ class Environment:
     clock: Clock
     sleeper: Sleeper
     connector_factory: Callable[[ScopeOptions], Connector]
+    tls_prober_factory: Callable[[ScopeOptions, Clock], TlsProber]
+
+
+def real_tls_prober(options: ScopeOptions, clock: Clock) -> TlsProber:
+    """The real TLS prober; it connects through its own policy-checking connector."""
+    return AsyncioTlsProber(AsyncioConnector(options), clock)
 
 
 def default_environment() -> Environment:
@@ -37,4 +44,5 @@ def default_environment() -> Environment:
         clock=SystemClock(),
         sleeper=AsyncioSleeper(),
         connector_factory=AsyncioConnector,
+        tls_prober_factory=real_tls_prober,
     )
