@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from network_scanner.baseline import store
 from network_scanner.baseline.diff import diff_baselines, has_drift
 from network_scanner.baseline.store import (
     BASELINE_KIND,
@@ -19,7 +20,12 @@ from network_scanner.baseline.store import (
     render_baseline,
 )
 from network_scanner.core.errors import NetErrorCode
-from network_scanner.core.limits import DEFAULT_LIMITS, MAX_BASELINE_BYTES, MAX_BASELINE_ENTRIES
+from network_scanner.core.limits import (
+    DEFAULT_LIMITS,
+    MAX_BASELINE_BYTES,
+    MAX_BASELINE_ENTRIES,
+    MAX_PROBES_PER_RUN,
+)
 from network_scanner.core.model import (
     SCHEMA_VERSION,
     Baseline,
@@ -244,16 +250,21 @@ def test_addresses_are_stored_in_canonical_form_and_entries_are_sorted() -> None
     assert [e.address for e in baseline.entries] == ["10.0.0.9", "10.0.0.10", "::1"]
 
 
-def test_the_maximum_number_of_entries_is_accepted_and_one_more_is_not() -> None:
-    def entries(count: int) -> list[dict[str, Any]]:
-        return [entry(address="10.0.0.1", port=1 + n % 65535) for n in range(count)]
+def test_the_maximum_number_of_entries_is_accepted_and_one_more_is_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(store, "MAX_BASELINE_ENTRIES", 5)  # the real cap would make this slow
 
-    assert len(parse(document(entries=entries(MAX_BASELINE_ENTRIES // 2))).entries) == (
-        MAX_BASELINE_ENTRIES // 2
-    )
-    too_many = [{"address": "10.0.0.1", "port": 1, "service": None}] * (MAX_BASELINE_ENTRIES + 1)
-    with pytest.raises(BaselineError, match="more than"):
-        parse(document(entries=too_many))
+    def entries(count: int) -> list[dict[str, Any]]:
+        return [entry(address="10.0.0.1", port=1 + n) for n in range(count)]
+
+    assert len(parse(document(entries=entries(5))).entries) == 5
+    with pytest.raises(BaselineError, match="more than 5 entries"):
+        parse(document(entries=entries(6)))
+
+
+def test_the_documented_entry_cap_is_the_most_one_scan_can_probe() -> None:
+    assert MAX_BASELINE_ENTRIES == MAX_PROBES_PER_RUN
 
 
 def test_hostile_text_in_a_rejected_baseline_is_not_echoed_raw() -> None:

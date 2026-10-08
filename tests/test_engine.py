@@ -153,10 +153,13 @@ def test_few_probes_create_few_tasks() -> None:
     assert run.connector.max_tasks == 1 + 3
 
 
-def test_a_run_near_the_cap_still_uses_only_the_worker_tasks() -> None:
+def test_a_run_with_far_more_probes_than_workers_still_uses_only_the_worker_tasks() -> None:
+    # 2,000 probes against 512 workers: enough to saturate every worker and to show that no task
+    # is created per probe. (It was 20,000 probes, which cost most of the gate's time under
+    # coverage and proved nothing more.)
     limits = Limits(max_targets=1000, concurrency=512)
-    run = scan(1000, ports=range(1, 21), limits=limits)  # 20,000 probes
-    assert len(run.connector.attempts) == 20_000
+    run = scan(100, ports=range(1, 21), limits=limits)
+    assert len(run.connector.attempts) == 2_000
     assert run.connector.max_tasks == 1 + 512
     assert run.connector.max_in_flight <= 512
 
