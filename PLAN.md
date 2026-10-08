@@ -1,7 +1,8 @@
-# network-scanner v1.0 plan (Step 0, awaiting approval)
+# network-scanner v1.0 plan
 
-Status: PROPOSED. No code is written until Otabek approves this file.
-Section 0 lists the decisions that need an explicit yes or no.
+Status: APPROVED by Otabek and implemented for 1.0.0. Section 0 lists the decisions and
+wins over any older text further down. The sections below are the plan as it was approved, and are
+not updated to describe the finished tool: the README and the documents in docs/ do that.
 
 ## 0. Decisions (final, approved by Otabek)
 
