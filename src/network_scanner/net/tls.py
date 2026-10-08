@@ -35,6 +35,7 @@ HANDSHAKE_GRACE_S = 1.0  # the inner handshake timer outlasts the outer deadline
 def client_context() -> ssl.SSLContext:
     """A client context that accepts any certificate (see the module documentation)."""
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2  # stated, not left to a build default
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
     return context

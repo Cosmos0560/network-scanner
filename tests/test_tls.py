@@ -17,7 +17,7 @@ import pytest
 
 import hostile
 from network_scanner.core.errors import ConnectError, NetErrorCode, ReasonCode, ScopeRefusal
-from network_scanner.core.limits import CLOSE_TIMEOUT_S, MAX_CERT_DER_BYTES
+from network_scanner.core.limits import ABORT_GRACE_S, CLOSE_TIMEOUT_S, MAX_CERT_DER_BYTES
 from network_scanner.core.model import TlsInfo
 from network_scanner.lab.certs import KeyType, LabCertificate, issue, new_key
 from network_scanner.lab.servers import PlainLab
@@ -317,7 +317,7 @@ def test_abort_returns_even_when_the_connection_never_reports_closed() -> None:
         return loop.time() - started, writer.transport.aborted
 
     elapsed, aborts = run_virtual(main)
-    assert (elapsed, aborts) == (CLOSE_TIMEOUT_S, 1)
+    assert (elapsed, aborts) == (ABORT_GRACE_S, 1)
 
 
 def test_a_connection_that_is_not_tls_has_no_session_details() -> None:

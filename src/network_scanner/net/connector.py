@@ -16,7 +16,7 @@ import socket
 import ssl
 
 from network_scanner.core.errors import ConnectError, NetErrorCode, ReasonCode, ScopeRefusal
-from network_scanner.core.limits import CLOSE_TIMEOUT_S
+from network_scanner.core.limits import ABORT_GRACE_S, CLOSE_TIMEOUT_S
 from network_scanner.core.model import Family
 from network_scanner.net.oserrors import normalise
 from network_scanner.scope.parser import parse_ip
@@ -57,10 +57,15 @@ class AsyncioConnection:
             pass  # a reset peer: the connection is closed either way
 
     async def abort(self) -> None:
-        """Drop the connection at once, without waiting for the peer (used after failures)."""
+        """Drop the connection at once, without waiting for the peer (used after failures).
+
+        The transport is closed by the abort itself. Waiting for the stream to report it is only
+        a courtesy and stops after `ABORT_GRACE_S`: a handshake that was cancelled half way never
+        reports back, and waiting longer would only make a hostile port cost more time.
+        """
         self._writer.transport.abort()
         with contextlib.suppress(OSError, TimeoutError):
-            async with asyncio.timeout(CLOSE_TIMEOUT_S):
+            async with asyncio.timeout(ABORT_GRACE_S):
                 await self._writer.wait_closed()
 
     async def start_tls(
