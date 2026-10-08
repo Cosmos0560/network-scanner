@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
+import dataclasses
+import io
 import re
 from pathlib import Path
 
@@ -13,6 +16,7 @@ from network_scanner.core.limits import (
     DEFAULT_LIMITS,
     MAX_DNS_ANSWERS,
     MAX_PORT_SPEC_CHARS,
+    MAX_PROBES_PER_RUN,
     MAX_SCOPE_ENTRIES,
     MAX_SCOPE_FILE_BYTES,
     MAX_TARGET_CHARS,
@@ -193,9 +197,59 @@ def test_the_rule_tables_and_evidence_fields_match_the_code() -> None:
     assert generated(document, "evidence_fields") == evidence_fields_markdown()
 
 
-def test_the_documented_exit_codes_match_the_enum() -> None:
+@pytest.mark.parametrize(
+    ("document", "heading"), [("architecture.md", "### Exit codes"), ("cli.md", "## Exit codes")]
+)
+def test_the_documented_exit_codes_match_the_enum(document: str, heading: str) -> None:
     from network_scanner.core.errors import ExitCode
 
-    section = read("architecture.md").split("### Exit codes", 1)[1].split("\n### ", 1)[0]
+    section = read(document).split(heading, 1)[1].split("\n#", 1)[0]
     documented = [int(code) for code in re.findall(r"^\| (\d+) \|", section, flags=re.MULTILINE)]
     assert documented == sorted(int(code) for code in ExitCode)
+
+
+# The limits that have a command-line option; every other setting is fixed at its default there.
+LIMIT_OPTIONS = {
+    "concurrency": "--concurrency",
+    "connections_per_second": "--rate",
+    "connect_timeout_s": "--connect-timeout",
+    "total_timeout_s": "--total-timeout",
+}
+
+
+def limits_table() -> str:
+    """The run limits as the Markdown table docs/cli.md must contain."""
+    lines = [
+        "| Setting | Option | Default | Ceiling |",
+        "|---------|--------|---------|---------|",
+    ]
+    for field in dataclasses.fields(DEFAULT_LIMITS):
+        option = f"`{LIMIT_OPTIONS[field.name]}`" if field.name in LIMIT_OPTIONS else "none"
+        default, ceiling = getattr(DEFAULT_LIMITS, field.name), CEILINGS[field.name]
+        lines.append(f"| `{field.name}` | {option} | {default} | {ceiling} |")
+    return "\n".join(lines)
+
+
+def test_the_cli_limits_table_matches_the_limits() -> None:
+    assert generated(read("cli.md"), "limits") == limits_table()
+
+
+def help_of(command: list[str]) -> str:
+    from network_scanner.cli.main import build_parser
+
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer), pytest.raises(SystemExit):
+        build_parser().parse_args([*command, "--help"])
+    return " ".join(buffer.getvalue().split())
+
+
+@pytest.mark.parametrize("command", [["scan"], ["baseline", "save"], ["baseline", "diff"]])
+def test_the_options_that_set_a_limit_exist_on_every_scanning_command(command: list[str]) -> None:
+    text = help_of(command)
+    for option in LIMIT_OPTIONS.values():
+        assert option in text
+
+
+def test_the_cli_document_names_the_fixed_probe_bound() -> None:
+    text = " ".join(read("cli.md").split())
+    assert f"may also not exceed {MAX_PROBES_PER_RUN} probes" in text
