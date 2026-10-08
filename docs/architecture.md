@@ -37,7 +37,7 @@ The check also runs inside pytest, with tests that plant violations in a tempora
 
 | Package | Kind | Reason |
 |---------|------|--------|
-| cryptography | runtime (declared when first used, Phase 4) | See below. |
+| cryptography | runtime (declared in Phase 4; first imported by `net/certificate.py` and `lab/certs.py`) | Certificate parsing and the self-signature check (decisions D1 and D6); see below. Installing it also installs `cffi` and `pycparser` (its own dependencies; both were pulled in when it was added to the development environment on 2026-10-08). |
 | PyYAML | runtime (declared in Phase 2; first imported by `ports/presets.py`) | The `common` port preset is YAML data and so will be the rules (decision D3). The stdlib has no YAML parser. Loaded with `yaml.safe_load` only; before loading, an event-stream check refuses anchors, aliases, explicit tags, duplicate keys and deep nesting (see `docs/ports.md`). `tests/test_ports_presets.py` fails if any source file calls an unsafe loader. |
 | hatchling | build | Build backend for the src layout. Not installed at runtime. |
 | pytest, pytest-cov | dev | Test runner and the coverage threshold in the gate. |
@@ -77,7 +77,23 @@ Checked against PyPI for `cryptography` 50.0.2 (the latest release at that time)
   a source build.
 
 This shows that wheels exist for the platforms CI uses. It is not a test of importing
-the package on every combination; CI does that once the dependency is declared.
+the package on every combination; CI does that now that the dependency is declared.
+
+### How `cryptography` is used, and its version range
+
+`pyproject.toml` declares `cryptography>=42,<51`. The lower bound is the first release that
+has every call the code makes (`not_valid_after_utc`, `signature_algorithm_parameters`); the
+upper bound is the next major release, which has not been looked at. Only the newest release
+is installed by the tests and by CI, so the lower bound is a statement about the API, not a
+tested configuration.
+
+The library is used for exactly two jobs, both on untrusted bytes and both without trusting
+anything: parsing a certificate (`x509.load_der_x509_certificate`) and verifying a
+certificate's signature under its own public key (`public_key().verify`). It is never used
+to build a chain, check a trust store or validate a certificate, and the reports say "self
+issued" and "signature verifies under its own key" rather than "valid" or "trusted"
+(`net/certificate.py`). The lab also uses it to generate its ephemeral certificates
+(`lab/certs.py`). Hand-written DER parsing is not used anywhere.
 
 ## Other decisions
 
