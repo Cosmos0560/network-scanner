@@ -18,6 +18,9 @@ The approved plan lives in PLAN.md. Do not import anything from the author's oth
 
 ## Git
 - Commit only via `python scripts/gate.py && git commit ...`.
+- Never pipe, filter or redirect the gate's output in a way that hides its exit status (no
+  `| grep`, `| tail`, `|| true`). A commit is allowed only when `python scripts/gate.py`
+  itself exited 0.
 - Small Conventional Commits, one logical change each.
 - Stage by explicit path only. Never `git add -A` or `git add .`.
 - Never `git push`. Never create tags. Otabek pushes.
