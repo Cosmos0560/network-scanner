@@ -11,9 +11,18 @@ import pytest
 MAX_SCANNED_BYTES = 2 * 1024 * 1024
 
 
-def tracked_files(root: Path, git: str) -> list[tuple[str, bytes]]:
+def tracked_files(
+    root: Path, git: str, *, include_untracked: bool = False
+) -> list[tuple[str, bytes]]:
+    """Path and content of each tracked file; with `include_untracked`, also of each new file
+    that git would not ignore, so a check can fail before a bad file is ever committed."""
     listing = subprocess.run(  # noqa: S603
-        [git, "ls-files", "-z"],
+        [
+            git,
+            "ls-files",
+            "-z",
+            *(["--cached", "--others", "--exclude-standard"] if include_untracked else []),
+        ],
         cwd=root,
         capture_output=True,
         check=False,

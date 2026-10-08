@@ -160,6 +160,17 @@ def test_no_tracked_file_contains_a_hidden_or_control_character() -> None:
     )
     if inside.returncode != 0:
         pytest.skip("this is not a git work tree (for example an unpacked source archive)")
-    files = tracked_files(REPO_ROOT, git)
+    files = tracked_files(REPO_ROOT, git, include_untracked=True)
     assert len(files) > 50, "git reports too few tracked files, so the check would prove little"
     assert find_hidden_characters(files) == []
+
+
+def test_a_new_file_that_is_not_tracked_yet_is_checked_when_asked(tmp_path: Path) -> None:
+    git = git_or_skip()
+    subprocess.run([git, "init", "-q"], cwd=tmp_path, check=True, timeout=60)  # noqa: S603
+    (tmp_path / "new.py").write_bytes(b"x = '" + chr(0x202E).encode() + b"'\n")
+    (tmp_path / ".gitignore").write_bytes(b"ignored.py\n")
+    (tmp_path / "ignored.py").write_bytes(b"x = '" + chr(0x202E).encode() + b"'\n")
+    assert find_hidden_characters(tracked_files(tmp_path, git)) == []
+    found = find_hidden_characters(tracked_files(tmp_path, git, include_untracked=True))
+    assert found == ["new.py:1: U+202E (bidirectional control)"]
