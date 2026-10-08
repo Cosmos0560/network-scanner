@@ -365,3 +365,149 @@ handshakes that never finish, escape sequences in banners) are test-only, in `te
   configuration; only the newest release is installed by the tests and CI.
 - Tests ran on Windows with Python 3.13 on the day of writing. Linux and Python 3.11 and 3.12
   are covered by CI only after the maintainer pushes, and are not claimed here.
+
+## Findings, baselines, outputs and the demo (Phase 5)
+
+### What `scan` does now
+
+`scan` plans the targets (scope policy first, as before), connects, and then **inspects each
+open port** (passive banner read, one `HEAD` request, a TLS handshake; see the Phase 4
+section), matches the observation to a service with the fingerprint rules and to findings with
+the finding rules, and prints the report. `--connect-only` skips the inspection: it connects,
+closes, and sends nothing. The steps are shared by `scan`, `baseline save`, `baseline diff` and
+`demo` in `cli/pipeline.py`; the decisions (`fingerprint/match.py`, `findings/evaluate.py`) are
+pure functions of the data.
+
+The report (`ScanReport`, every output format) has, besides the Phase 3 fields: `probed`
+(whether open ports were inspected), `observations` (one per inspected open port: banner, HTTP
+answer, TLS facts, and the `service` its fingerprint matched or null) and `findings`. The report
+schema version stays 1: reports from before this change never shipped.
+
+### Findings
+
+A finding says: this rule fired on this port, this is how much it would matter
+(**severity**: `info`, `low`, `medium`, `high`, `critical`), this is how sure the evidence makes
+us (**confidence**: `low`, `medium`, `high`), and this is the evidence. The two are separate
+fields on purpose. Confidence comes from the rule or, for rules about a service, from the
+fingerprint rule that named it, so a telnet finding resting on a low-confidence fingerprint
+stays low confidence whatever its severity.
+
+- Every finding carries `evidence`: the rule's template filled from a closed list of facts about
+  the port (below), sanitised again and capped. A template with an unknown `{field}`, or any
+  other brace, is refused when the file is loaded.
+- `references` are CWE ids and RFC numbers, only where precise. There is no ATT&CK mapping: an
+  open port is not an observed technique.
+- The rule file has the same envelope as a fingerprint rule file (see "Rule files") and its own
+  closed schema: `id`, `title`, `severity`, `confidence` (`low`, `medium`, `high` or
+  `from_service`), `description`, `evidence`, `when` and optionally `references`. `when` holds
+  one or more conditions that must all hold: `service`, `tls_version_in`, and the flags
+  `tls_expired`, `tls_hostname_mismatch`, `tls_self_issued`, `tls_unreadable` (each must be
+  `true`). `network-scanner rules validate --kind findings [PATH ...]` checks a file.
+
+Facts available to an evidence template:
+
+<!-- BEGIN GENERATED: evidence_fields -->
+`{address}`, `{banner}`, `{http_server}`, `{port}`, `{service}`, `{service_confidence}`, `{service_rule}`, `{tls_cipher}`, `{tls_expired}`, `{tls_hostname_match}`, `{tls_issuer}`, `{tls_not_after}`, `{tls_not_before}`, `{tls_parse_error}`, `{tls_san}`, `{tls_self_issued}`, `{tls_self_signature_valid}`, `{tls_sha256}`, `{tls_subject}`, `{tls_version}`
+<!-- END GENERATED: evidence_fields -->
+
+The built-in rules:
+
+<!-- BEGIN GENERATED: finding_rules -->
+| Rule | Severity | Confidence | References | Fires when |
+|------|----------|------------|------------|------------|
+| `cleartext-telnet` | medium | from the service | CWE-319, RFC 854 | Telnet service (remote login without encryption) |
+| `cleartext-ftp` | low | from the service | CWE-319, RFC 959 | FTP service (control connection not encrypted at connect) |
+| `tls-deprecated-version` | medium | high | RFC 8996 | Deprecated TLS or SSL version negotiated |
+| `tls-certificate-expired` | medium | high | RFC 5280 section 4.1.2.5 | Certificate has expired |
+| `tls-certificate-hostname-mismatch` | medium | high | RFC 9525 | Certificate does not cover the requested name |
+| `tls-certificate-self-issued` | info | high | RFC 5280 | Certificate is self-issued (issuer equals subject) |
+| `tls-certificate-unreadable` | info | high | none | Certificate could not be read |
+<!-- END GENERATED: finding_rules -->
+
+Each rule has a positive and a negative test (`tests/test_findings.py` fails if one is missing).
+The deprecated-version rule judges only the version actually negotiated, and the scanner offers
+TLS 1.2 or newer, so end to end it can only fire for a server that negotiates an older version
+despite that; it is tested on synthetic observations (PLAN.md risk R3).
+
+### Baselines and drift
+
+`network-scanner baseline save TARGET... --baseline FILE` scans with fingerprinting and writes
+the open ports and their service names to FILE. `baseline diff TARGET... --baseline FILE` scans
+again and reports what is **new** (open now, not in the baseline), **closed** (in the baseline,
+probed now, not open), **changed** (open in both with a different service name, including
+unidentified versus identified) and **not scanned** (in the baseline but not probed this time,
+for example because the target or port list is narrower; reported so it cannot be mistaken for
+"unchanged", but not drift). The time of the scan is ignored.
+
+- A baseline is written only from a scan that completed and was fingerprinted. A partial scan
+  would turn every port it missed into "closed" later, and a connect-only one would turn every
+  service into "changed". An interrupted or timed-out run writes no baseline and gives no drift
+  report, only its exit code.
+- The baseline file is read back as **untrusted input**, and read before the scan starts, so a
+  bad file fails at once. Size cap (table above) before parsing; JSON with no duplicate keys,
+  floats or NaN; exactly the keys `schema_version`, `kind`, `created_at`, `entries`; a version
+  check with its own message for a file written by a newer version; every entry has exactly
+  `address` (an IP literal, stored canonically), `port` (1-65535) and `service` (null or a
+  service-name token); no (address, port) twice. Anything else is an error that names the place,
+  with exit code 2.
+- `baseline save` will not replace an existing file unless `--force` is given.
+- `--format` for `baseline diff` is `table` or `json`.
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Completed; no drift (diff); no finding at or above `--fail-on` |
+| 1 | `baseline diff` found drift, or a finding is at or above `--fail-on` |
+| 2 | Usage error, scope refusal, unacceptable output path, unusable baseline or rule file |
+| 3 | Runtime error, or the total timeout was reached (the report is partial) |
+| 130 | Interrupted (the report is partial) |
+
+An interrupted or timed-out run keeps its own code even if findings or drift were seen so far.
+
+### Output formats and files
+
+`scan --format` is `table` (default), `json`, `jsonl` or `csv`; the demo takes the same.
+
+- **table**: ASCII only. Ports with a SERVICE column, then per-port details (banner, HTTP answer,
+  TLS and certificate facts), then findings most severe first with their evidence and references.
+- **json**: the whole report, keys in model order.
+- **jsonl**: one compact object per line with `type` first: `scan`, `target`, `result`,
+  `observation`, `finding`.
+- **csv**: one header, one `port` row per probed port (with its service and TLS facts) and one
+  `finding` row per finding, in the same columns.
+- **Sanitising**: text that came from the network was sanitised when captured and is sanitised
+  again when it is rendered, in every format, and a string over the cap in the table above is cut.
+  JSON and JSON Lines are ASCII (non-ASCII text is written as `\u` escapes) and a JSON Lines
+  record never contains a raw line break.
+- **CSV and spreadsheets**: a text cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage
+  return, or that starts with such a character after leading spaces, gets a leading apostrophe,
+  so a spreadsheet shows it as text. Numbers are unquoted and never negative.
+- **`--output PATH`** writes the report to a file instead of printing it. UNC, URL and NUL
+  paths are refused when the command line is parsed; Windows device names (`NUL`, `COM1`, ...)
+  and `/dev`, `/proc`, `/sys` are refused; a symbolic link or Windows reparse point at the
+  destination is refused, with or without `--force`. An existing file is not replaced unless
+  `--force` is given, and this is checked before the scan starts. The data goes into an
+  exclusively created temporary file in the same directory, is synced, and is then linked or
+  renamed into place, so the file appears whole or not at all and a symlink is never written
+  through. File systems without hard links fall back to a check followed by a rename, which
+  leaves a tiny race on POSIX (on Windows the rename itself refuses an existing file).
+
+### The demo
+
+`network-scanner demo [--format F] [--output PATH] [--force]` starts the four lab services on
+127.0.0.1 on ports the operating system picks, scans and fingerprints them, prints the report
+and stops them. It takes no target, so it cannot be pointed at another host, and the planner and
+connector apply the normal scope policy to the one address it uses. It needs no network.
+Ports differ on every run.
+
+### Known gaps (Phase 5)
+
+- Symlink refusal was exercised on this machine only through a Windows junction; the tests that
+  create real symbolic links need a privilege that was not available and are skipped with that
+  reason. CI on Linux runs them.
+- `baseline diff` compares service names only; a changed certificate or banner on the same
+  service is not drift.
+- `baseline diff --format` offers `table` and `json`, not `jsonl` or `csv`.
+- The finding rules cover cleartext telnet and FTP, deprecated TLS versions and four certificate
+  facts. They name no product versions and carry no vulnerability data.

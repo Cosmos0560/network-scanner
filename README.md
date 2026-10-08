@@ -8,19 +8,26 @@ networks you are authorized to test.
 
 ## Status
 
-Under construction. The TCP connect scan works, checked end to end against loopback
-listeners by [tests/test_e2e.py](tests/test_e2e.py). Service fingerprinting exists as building
-blocks that `scan` does not use yet: a bounded inspector (a passive banner read, one HTTP `HEAD`
-request, a TLS handshake that reads the certificate without validating it), fingerprint rules,
-and `network-scanner rules validate`. They are checked end to end against a loopback lab by
-[tests/test_fingerprint_e2e.py](tests/test_fingerprint_e2e.py) and described in
-[docs/architecture.md](docs/architecture.md#fingerprinting-and-tls-phase-4). There is no
-baseline or drift detection yet.
+Under construction; the README is rewritten in the last phase. What works today, each checked
+end to end against loopback services by the tests named in
+[docs/architecture.md](docs/architecture.md):
+
+- a TCP connect scan that inspects each open port (a passive banner read, one HTTP `HEAD`
+  request, a TLS handshake that reads the certificate without validating it), names the
+  service, and reports findings with evidence, in table, JSON, JSON Lines and CSV form;
+- a baseline of open ports and services, and a drift report against it (`baseline save` and
+  `baseline diff`);
+- a demo that scans a lab it starts itself on loopback (it needs no network);
+- `network-scanner rules validate` for fingerprint and finding rule files.
 
 ```
 network-scanner --version
-network-scanner scan 127.0.0.1 --ports 22,80,443
-network-scanner rules validate
+network-scanner demo
+network-scanner scan 127.0.0.1 --ports 22,80,443 --format json
+network-scanner scan 127.0.0.1 --connect-only          # send nothing after connecting
+network-scanner baseline save 127.0.0.1 --baseline lab.json
+network-scanner baseline diff 127.0.0.1 --baseline lab.json
+network-scanner rules validate --kind findings
 ```
 
 The scope rules (what is scanned by default and what needs explicit permission) are in

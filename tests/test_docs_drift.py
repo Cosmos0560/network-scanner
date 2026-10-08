@@ -153,3 +153,20 @@ def test_the_documented_probe_defaults_match_the_run_limits() -> None:
     text = " ".join(read("architecture.md").split())
     assert "`probes_per_open_port` (3 at most" in text
     assert DEFAULT_LIMITS.probes_per_open_port == CEILINGS["probes_per_open_port"] == 3
+
+
+def test_the_finding_rules_table_and_evidence_fields_match_the_code() -> None:
+    from network_scanner.rules.findings_schema import evidence_fields_markdown, markdown_table
+    from network_scanner.rules.loader import builtin_finding_rules
+
+    document = read("architecture.md")
+    assert generated(document, "finding_rules") == markdown_table(builtin_finding_rules())
+    assert generated(document, "evidence_fields") == evidence_fields_markdown()
+
+
+def test_the_documented_exit_codes_match_the_enum() -> None:
+    from network_scanner.core.errors import ExitCode
+
+    section = read("architecture.md").split("### Exit codes", 1)[1].split("\n### ", 1)[0]
+    documented = [int(code) for code in re.findall(r"^\| (\d+) \|", section, flags=re.MULTILINE)]
+    assert documented == sorted(int(code) for code in ExitCode)

@@ -238,3 +238,23 @@ def _rule(raw: Any, location: str) -> FindingRule:
 def parse_finding_rules(text: str) -> FindingRuleSet:
     """Validate one finding rule document and return its rules, in file order."""
     return FindingRuleSet(tuple(parse_rule_document(text, _rule)))
+
+
+def evidence_fields_markdown() -> str:
+    """The evidence fields as the list docs/architecture.md must contain."""
+    return ", ".join(f"`{{{name}}}`" for name in sorted(EVIDENCE_FIELDS))
+
+
+def markdown_table(rules: FindingRuleSet) -> str:
+    """The rules as the Markdown table docs/architecture.md must contain."""
+    lines = [
+        "| Rule | Severity | Confidence | References | Fires when |",
+        "|------|----------|------------|------------|------------|",
+    ]
+    for rule in rules.rules:
+        confidence = "from the service" if rule.confidence is None else rule.confidence.value
+        references = ", ".join(rule.references) or "none"
+        lines.append(
+            f"| `{rule.id}` | {rule.severity.value} | {confidence} | {references} | {rule.title} |"
+        )
+    return "\n".join(lines)
