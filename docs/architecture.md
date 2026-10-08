@@ -269,6 +269,7 @@ total timeout and an interrupted inspection never loses the open result.
 | `MAX_REGEX_REPEAT` | 255 | Largest count in `{m,n}`. |
 | `MAX_REGEX_COST` | 100000 | Budget for a pattern's backtracking estimate (below). |
 | `MAX_REGEX_GROUP_DEPTH` | 6 | Deepest nesting of groups in a pattern. |
+| `MAX_EVIDENCE_CHARS` | 400 | Sanitised evidence text kept per finding. |
 <!-- END GENERATED: probe_limits -->
 
 The banner wait (`banner_timeout_s`), the banner byte cap (`banner_max_bytes`) and the probe

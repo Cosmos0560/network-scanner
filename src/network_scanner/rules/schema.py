@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, Protocol, TypeVar
 
 from network_scanner.core.errors import NetworkScannerError
 from network_scanner.core.limits import MAX_RULE_FILE_BYTES, MAX_RULES
@@ -24,6 +25,14 @@ from network_scanner.core.yamlsafe import safe_load_document
 from network_scanner.rules.regex_safety import UnsafeRegex, compile_safe
 
 SCHEMA_VERSION = 1
+
+
+class _HasId(Protocol):
+    @property
+    def id(self) -> str: ...
+
+
+_R = TypeVar("_R", bound=_HasId)
 FILE = "<file>"
 _ID = re.compile(r"[a-z][a-z0-9-]{0,47}")
 _SERVICE = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
@@ -82,11 +91,11 @@ class RuleSet:
     rules: tuple[FingerprintRule, ...]
 
 
-def _shown(name: object) -> str:
+def shown(name: object) -> str:
     return repr(sanitize_text(str(name), max_chars=40).text)
 
 
-def _mapping(value: Any, location: str, keys: tuple[str, ...]) -> dict[str, Any]:
+def mapping(value: Any, location: str, keys: tuple[str, ...]) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise RuleError(RuleErrorCode.WRONG_TYPE, location, "expected a mapping")
     for key in value:
@@ -94,17 +103,19 @@ def _mapping(value: Any, location: str, keys: tuple[str, ...]) -> dict[str, Any]
             where = location
             if isinstance(key, str) and key.isidentifier():
                 where = key if location == FILE else f"{location}.{key}"
-            raise RuleError(RuleErrorCode.UNKNOWN_KEY, where, f"unknown key {_shown(key)}")
+            raise RuleError(RuleErrorCode.UNKNOWN_KEY, where, f"unknown key {shown(key)}")
     return value
 
 
-def _require(mapping: dict[str, Any], location: str, keys: tuple[str, ...]) -> None:
+def require(mapping: dict[str, Any], location: str, keys: tuple[str, ...]) -> None:
     for key in keys:
         if key not in mapping:
             raise RuleError(RuleErrorCode.MISSING_KEY, location, f"missing key {key!r}")
 
 
-def _text(value: Any, location: str, *, pattern: re.Pattern[str] | None, max_chars: int) -> str:
+def text_value(
+    value: Any, location: str, *, pattern: re.Pattern[str] | None, max_chars: int
+) -> str:
     if not isinstance(value, str):
         raise RuleError(RuleErrorCode.WRONG_TYPE, location, "expected a string")
     if not 1 <= len(value) <= max_chars:
@@ -118,7 +129,7 @@ def _text(value: Any, location: str, *, pattern: re.Pattern[str] | None, max_cha
     return value
 
 
-def _regex(value: Any, location: str) -> tuple[str, re.Pattern[str]]:
+def regex_value(value: Any, location: str) -> tuple[str, re.Pattern[str]]:
     if not isinstance(value, str):
         raise RuleError(RuleErrorCode.WRONG_TYPE, location, "expected a string")
     try:
@@ -128,11 +139,11 @@ def _regex(value: Any, location: str) -> tuple[str, re.Pattern[str]]:
 
 
 def _rule(raw: Any, location: str) -> FingerprintRule:
-    rule = _mapping(raw, location, _RULE_KEYS)
-    _require(rule, location, _RULE_KEYS)
-    rule_id = _text(rule["id"], f"{location}.id", pattern=_ID, max_chars=48)
-    service = _text(rule["service"], f"{location}.service", pattern=_SERVICE, max_chars=32)
-    confidence_text = _text(
+    rule = mapping(raw, location, _RULE_KEYS)
+    require(rule, location, _RULE_KEYS)
+    rule_id = text_value(rule["id"], f"{location}.id", pattern=_ID, max_chars=48)
+    service = text_value(rule["service"], f"{location}.service", pattern=_SERVICE, max_chars=32)
+    confidence_text = text_value(
         rule["confidence"], f"{location}.confidence", pattern=None, max_chars=16
     )
     try:
@@ -142,23 +153,23 @@ def _rule(raw: Any, location: str) -> FingerprintRule:
         raise RuleError(
             RuleErrorCode.INVALID_VALUE, f"{location}.confidence", f"must be one of {choices}"
         ) from None
-    description = _text(
+    description = text_value(
         rule["description"], f"{location}.description", pattern=None, max_chars=_MAX_DESCRIPTION
     )
 
     match_location = f"{location}.match"
-    match = _mapping(rule["match"], match_location, _MATCH_KEYS)
+    match = mapping(rule["match"], match_location, _MATCH_KEYS)
     if not match:
         raise RuleError(
             RuleErrorCode.EMPTY_MATCH, match_location, "a rule needs at least one condition"
         )
     banner_regex = banner_pattern = server_regex = server_pattern = None
     if "banner_regex" in match:
-        banner_regex, banner_pattern = _regex(
+        banner_regex, banner_pattern = regex_value(
             match["banner_regex"], f"{match_location}.banner_regex"
         )
     if "http_server_regex" in match:
-        server_regex, server_pattern = _regex(
+        server_regex, server_pattern = regex_value(
             match["http_server_regex"], f"{match_location}.http_server_regex"
         )
     for name in ("http_response", "tls"):
@@ -188,8 +199,12 @@ def _rule(raw: Any, location: str) -> FingerprintRule:
     )
 
 
-def parse_fingerprint_rules(text: str) -> RuleSet:
-    """Validate one rule document and return its rules, in file order."""
+def parse_rule_document(text: str, parse_rule: Callable[[Any, str], _R]) -> list[_R]:
+    """Validate the envelope of a rule document and parse each rule with `parse_rule`.
+
+    The envelope is the size cap, safe YAML, exactly the keys `schema_version` and `rules`,
+    the version, the list bounds, and unique ids (every rule needs an `id` attribute).
+    """
     if len(text.encode("utf-8", "surrogatepass")) > MAX_RULE_FILE_BYTES:
         raise RuleError(
             RuleErrorCode.FILE_TOO_LARGE, FILE, f"larger than {MAX_RULE_FILE_BYTES} bytes"
@@ -199,8 +214,8 @@ def parse_fingerprint_rules(text: str) -> RuleSet:
         return RuleError(RuleErrorCode.INVALID_YAML, FILE, message)
 
     document = safe_load_document(text, error=invalid_yaml)
-    top = _mapping(document, FILE, _TOP_KEYS)
-    _require(top, FILE, _TOP_KEYS)
+    top = mapping(document, FILE, _TOP_KEYS)
+    require(top, FILE, _TOP_KEYS)
     version = top["schema_version"]
     if isinstance(version, bool) or not isinstance(version, int):
         raise RuleError(RuleErrorCode.WRONG_TYPE, "schema_version", "expected an integer")
@@ -218,10 +233,10 @@ def parse_fingerprint_rules(text: str) -> RuleSet:
     if len(raw_rules) > MAX_RULES:
         raise RuleError(RuleErrorCode.TOO_MANY_RULES, "rules", f"more than {MAX_RULES} rules")
 
-    rules: list[FingerprintRule] = []
+    rules: list[_R] = []
     first_use: dict[str, int] = {}
     for index, raw in enumerate(raw_rules):
-        rule = _rule(raw, f"rules[{index}]")
+        rule = parse_rule(raw, f"rules[{index}]")
         if rule.id in first_use:
             raise RuleError(
                 RuleErrorCode.DUPLICATE_ID,
@@ -230,4 +245,9 @@ def parse_fingerprint_rules(text: str) -> RuleSet:
             )
         first_use[rule.id] = index
         rules.append(rule)
-    return RuleSet(tuple(rules))
+    return rules
+
+
+def parse_fingerprint_rules(text: str) -> RuleSet:
+    """Validate one fingerprint rule document and return its rules, in file order."""
+    return RuleSet(tuple(parse_rule_document(text, _rule)))

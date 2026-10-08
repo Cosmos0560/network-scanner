@@ -1,0 +1,84 @@
+# Finding rules: facts about an open port -> a finding with evidence.
+#
+# A rule applies to a port when ALL of its `when` conditions hold. Every finding carries the
+# evidence text built from the template, so the report always says what was seen.
+#
+# `severity` is how much the finding would matter if it is right. `confidence` is how sure the
+# evidence makes us; `from_service` takes the confidence of the fingerprint rule that named the
+# service. They are separate on purpose: a low-confidence service gives a low-confidence
+# finding, whatever the severity.
+#
+# Conditions: service, tls_version_in, tls_expired, tls_hostname_mismatch, tls_self_issued,
+# tls_unreadable (flags must be true). Evidence fields are listed in docs/architecture.md.
+# References are CWE ids and RFC numbers only, and only where they are precise.
+# There is no ATT&CK mapping: an open port is not an observed technique.
+schema_version: 1
+rules:
+  - id: cleartext-telnet
+    title: Telnet service (remote login without encryption)
+    severity: medium
+    confidence: from_service
+    description: Telnet sends logins and session data unencrypted (RFC 854 defines no encryption).
+    references: [CWE-319, RFC 854]
+    evidence: "{address}:{port} looks like telnet (fingerprint rule {service_rule}, confidence {service_confidence}). Banner: {banner}"
+    when:
+      service: telnet
+
+  - id: cleartext-ftp
+    title: FTP service (control connection not encrypted at connect)
+    severity: low
+    confidence: from_service
+    description: The FTP greeting arrived on a connection without TLS. Explicit TLS (AUTH TLS) may still be offered; the scanner does not check.
+    references: [CWE-319, RFC 959]
+    evidence: "{address}:{port} sent an FTP greeting without TLS (fingerprint rule {service_rule}, confidence {service_confidence}). Banner: {banner}"
+    when:
+      service: ftp
+
+  - id: tls-deprecated-version
+    title: Deprecated TLS or SSL version negotiated
+    severity: medium
+    confidence: high
+    description: TLS 1.0 and TLS 1.1 are deprecated (RFC 8996), and SSL 3.0 is older still. Only the version actually negotiated is judged.
+    references: [RFC 8996]
+    evidence: "{address}:{port} negotiated {tls_version} (cipher {tls_cipher})"
+    when:
+      tls_version_in: [SSLv3, TLSv1, TLSv1.1]
+
+  - id: tls-certificate-expired
+    title: Certificate has expired
+    severity: medium
+    confidence: high
+    description: The certificate's notAfter time is before the time of the scan.
+    references: [RFC 5280 section 4.1.2.5]
+    evidence: "{address}:{port} presented a certificate valid from {tls_not_before} to {tls_not_after} (subject {tls_subject}, sha256 {tls_sha256}); the scan ran after notAfter"
+    when:
+      tls_expired: true
+
+  - id: tls-certificate-hostname-mismatch
+    title: Certificate does not cover the requested name
+    severity: medium
+    confidence: high
+    description: The name the scan connected to is not in the certificate's subjectAltName entries. Only reported when a host name was given as the target.
+    references: [RFC 9525]
+    evidence: "{address}:{port} presented a certificate for {tls_san} (subject {tls_subject}); the requested name is not among them"
+    when:
+      tls_hostname_mismatch: true
+
+  - id: tls-certificate-self-issued
+    title: Certificate is self-issued (issuer equals subject)
+    severity: info
+    confidence: high
+    description: Issuer and subject name are equal. This says nothing about whether the certificate should be trusted; the scanner validates no chain.
+    references: [RFC 5280]
+    evidence: "{address}:{port} subject {tls_subject}, issuer {tls_issuer}; signature verifies under its own key: {tls_self_signature_valid}"
+    when:
+      tls_self_issued: true
+
+  - id: tls-certificate-unreadable
+    title: Certificate could not be read
+    severity: info
+    confidence: high
+    description: The TLS handshake completed but the certificate was missing, too large or malformed, so no certificate facts are available.
+    evidence: "{address}:{port} completed a TLS handshake ({tls_version}) but the certificate could not be read: {tls_parse_error} (sha256 {tls_sha256})"
+    when:
+      tls_unreadable: true

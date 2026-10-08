@@ -9,7 +9,10 @@ characters of the sanitised text.
 
 from __future__ import annotations
 
-from network_scanner.core.model import Confidence, Observation, Service
+from collections.abc import Iterable
+from dataclasses import replace
+
+from network_scanner.core.model import Confidence, Observation, PortObservation, Service
 from network_scanner.rules.regex_safety import search_bounded
 from network_scanner.rules.schema import FingerprintRule, RuleSet
 
@@ -45,3 +48,10 @@ def identify(observation: Observation, rules: RuleSet) -> Service | None:
     if best is None:
         return None
     return Service(name=best.service, rule_id=best.id, confidence=best.confidence)
+
+
+def attach_services(
+    inspected: Iterable[PortObservation], rules: RuleSet
+) -> tuple[PortObservation, ...]:
+    """Each inspected port with the service its observation matches (None if no rule does)."""
+    return tuple(replace(found, service=identify(found.observation, rules)) for found in inspected)

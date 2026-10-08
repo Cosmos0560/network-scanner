@@ -82,3 +82,6 @@ MAX_REGEX_INPUT_CHARS = 256  # a pattern is only ever run on this many leading c
 MAX_REGEX_REPEAT = 255  # largest count in {m,n}
 MAX_REGEX_COST = 100_000  # budget for the backtracking estimate (see rules/regex_safety.py)
 MAX_REGEX_GROUP_DEPTH = 6
+
+# Findings (Phase 5).
+MAX_EVIDENCE_CHARS = 400  # sanitised evidence text kept per finding
