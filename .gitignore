@@ -23,3 +23,15 @@ graphify-out/
 # Editor and assistant local state
 .claude/
 .vscode/
+
+# Decision D2: no key or certificate is ever committed (tests generate them at runtime)
+*.pem
+*.key
+*.crt
+*.cer
+*.der
+*.p12
+*.pfx
+*.jks
+*.p8
+*.pk8
