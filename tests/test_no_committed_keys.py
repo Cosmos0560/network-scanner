@@ -8,15 +8,15 @@ below are written so that this file does not match them itself.
 from __future__ import annotations
 
 import re
-import shutil
 import subprocess
 from collections.abc import Iterable
 from pathlib import Path, PurePosixPath
 
 import pytest
 
+from gitfiles import git_or_skip, tracked_files
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
-MAX_SCANNED_BYTES = 2 * 1024 * 1024
 
 KEY_SUFFIXES = frozenset(
     {".pem", ".key", ".crt", ".cer", ".der", ".p12", ".pfx", ".jks", ".keystore", ".p8", ".pk8"}
@@ -37,36 +37,6 @@ def find_key_material(files: Iterable[tuple[str, bytes]]) -> list[str]:
         elif PEM_BLOCK.search(content) or PUTTY_KEY.search(content):
             found.append(f"{path}: key or certificate content")
     return found
-
-
-def tracked_files(root: Path, git: str) -> list[tuple[str, bytes]]:
-    listing = subprocess.run(  # noqa: S603
-        [git, "ls-files", "-z"],
-        cwd=root,
-        capture_output=True,
-        check=False,
-        timeout=60,
-    )
-    assert listing.returncode == 0, listing.stderr.decode("utf-8", "replace")
-    files = []
-    for raw in listing.stdout.split(b"\x00"):
-        if not raw:
-            continue
-        path = raw.decode("utf-8", "surrogateescape")
-        try:
-            with (root / path).open("rb") as handle:
-                content = handle.read(MAX_SCANNED_BYTES)
-        except OSError:
-            content = b""  # deleted in the working tree; the name was still checked
-        files.append((path, content))
-    return files
-
-
-def git_or_skip() -> str:
-    git = shutil.which("git")
-    if git is None:
-        pytest.skip("git is not installed, so the tracked files cannot be listed")
-    return git
 
 
 def pem(label: str) -> bytes:
