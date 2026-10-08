@@ -1,9 +1,8 @@
 """Port presets, loaded from packaged YAML (decision D3: PyYAML, `safe_load` only).
 
-The data file is trusted no more than any other input: it is size-capped, scanned as an
-event stream first (no aliases, no explicit tags, no duplicate keys, shallow nesting, so a
-small file cannot expand into a huge one) and then loaded with `yaml.safe_load`. The
-content is validated against a closed schema.
+The data file is trusted no more than any other input: it is size-capped, loaded through
+`core/yamlsafe.py` (an event-stream check, then `yaml.safe_load`; see there for what is
+refused) and validated against a closed schema.
 """
 
 from __future__ import annotations
@@ -15,15 +14,13 @@ from functools import cache
 from importlib.resources import files
 from typing import Any
 
-import yaml
-
 from network_scanner.core.errors import NetworkScannerError
+from network_scanner.core.yamlsafe import safe_load_document
 
 PRESET_FILES: dict[str, str] = {"common": "ports_common.yaml"}
 PRESET_NAMES = tuple(sorted(PRESET_FILES))
 MAX_PRESET_BYTES = 64 * 1024
 MAX_PRESET_PORTS = 1024
-_MAX_DEPTH = 8
 _NAME = re.compile(r"[a-z][a-z0-9_-]{0,31}")
 _SERVICE = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
 _REFUSED_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp"})
@@ -48,43 +45,6 @@ class Preset:
     @property
     def ports(self) -> tuple[int, ...]:
         return tuple(entry.port for entry in self.entries)
-
-
-@dataclass(slots=True)
-class _Frame:
-    is_mapping: bool
-    keys: set[str]
-    expecting_key: bool = True
-
-
-def _scan_events(text: str) -> None:
-    """Refuse YAML features that have no place in a data file, without building objects."""
-    frames: list[_Frame] = []
-    for event in yaml.parse(text, Loader=yaml.SafeLoader):
-        if isinstance(event, yaml.AliasEvent):
-            raise PresetError("YAML aliases are not allowed")
-        if isinstance(event, yaml.SequenceEndEvent | yaml.MappingEndEvent):
-            frames.pop()
-            continue
-        if not isinstance(
-            event, yaml.ScalarEvent | yaml.SequenceStartEvent | yaml.MappingStartEvent
-        ):
-            continue
-        if event.anchor is not None or event.tag is not None:
-            raise PresetError("YAML anchors and explicit tags are not allowed")
-        if frames and frames[-1].is_mapping:
-            frame = frames[-1]
-            if frame.expecting_key:
-                if not isinstance(event, yaml.ScalarEvent):
-                    raise PresetError("mapping keys must be plain scalars")
-                if event.value in frame.keys:
-                    raise PresetError(f"duplicate key {event.value!r}")
-                frame.keys.add(event.value)
-            frame.expecting_key = not frame.expecting_key
-        if not isinstance(event, yaml.ScalarEvent):
-            if len(frames) >= _MAX_DEPTH:
-                raise PresetError("YAML is nested too deeply")
-            frames.append(_Frame(isinstance(event, yaml.MappingStartEvent), set()))
 
 
 def _int(value: Any, what: str, low: int, high: int) -> int:
@@ -113,11 +73,7 @@ def parse_preset(text: str, *, expected_name: str | None = None) -> Preset:
     """Parse and validate one preset document."""
     if len(text.encode("utf-8")) > MAX_PRESET_BYTES:
         raise PresetError(f"preset is larger than {MAX_PRESET_BYTES} bytes")
-    try:
-        _scan_events(text)
-        document = yaml.safe_load(text)
-    except yaml.YAMLError as exc:
-        raise PresetError(f"invalid YAML ({type(exc).__name__})") from None
+    document = safe_load_document(text, error=PresetError)
     top = _mapping(document, "the preset", {"schema_version", "name", "description", "ports"})
     _int(top["schema_version"], "schema_version", 1, 1)  # only version 1 exists
     name = _text(top["name"], "name", _NAME, 32)

@@ -225,4 +225,4 @@ def test_no_source_file_uses_an_unsafe_yaml_loader() -> None:
                     if alias.name in unsafe
                 )
     assert offenders == []
-    assert "yaml.safe_load(" in (SRC / "ports" / "presets.py").read_text(encoding="utf-8")
+    assert "yaml.safe_load(" in (SRC / "core" / "yamlsafe.py").read_text(encoding="utf-8")
