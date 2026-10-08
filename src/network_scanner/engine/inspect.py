@@ -14,7 +14,7 @@ import asyncio
 
 from network_scanner.core.errors import ConnectError
 from network_scanner.core.interfaces import Connection, Connector, RateLimiter, TlsProber
-from network_scanner.core.limits import TLS_HANDSHAKE_TIMEOUT_S, Limits
+from network_scanner.core.limits import HTTP_HEAD_TIMEOUT_S, TLS_HANDSHAKE_TIMEOUT_S, Limits
 from network_scanner.core.model import Observation, ResolvedTarget, TargetKind, TlsInfo
 from network_scanner.engine.probe_plan import ProbeAttempt, ProbeKind, next_probe
 from network_scanner.engine.probes import (
@@ -104,9 +104,7 @@ class ServiceInspector:
             host_header(target.address, port, hostname=hostname), self._tool_version
         )
         try:
-            return await http_head(
-                connection, request=request, deadline_s=self._limits.banner_timeout_s
-            )
+            return await http_head(connection, request=request, deadline_s=HTTP_HEAD_TIMEOUT_S)
         finally:
             await connection.close()
 

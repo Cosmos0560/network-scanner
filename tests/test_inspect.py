@@ -10,7 +10,12 @@ import pytest
 
 from fakes import LoopClock, NoLimit
 from network_scanner.core.errors import ConnectError, NetErrorCode, ReasonCode, ScopeRefusal
-from network_scanner.core.limits import DEFAULT_LIMITS, TLS_HANDSHAKE_TIMEOUT_S, Limits
+from network_scanner.core.limits import (
+    DEFAULT_LIMITS,
+    HTTP_HEAD_TIMEOUT_S,
+    TLS_HANDSHAKE_TIMEOUT_S,
+    Limits,
+)
 from network_scanner.core.model import (
     Family,
     Observation,
@@ -212,7 +217,7 @@ def test_a_service_nothing_answers_uses_all_three_probes_and_reports_nothing() -
     assert len(connector.connects) == 2
     assert len(prober.calls) == 1
     assert limiter.acquired == 3
-    assert elapsed == 2 * DEFAULT_BANNER_WAIT
+    assert elapsed == DEFAULT_BANNER_WAIT + HTTP_HEAD_TIMEOUT_S
 
 
 @pytest.mark.parametrize(("limit", "connections", "tls_calls"), [(1, 1, 0), (2, 2, 0), (3, 2, 1)])
@@ -397,3 +402,14 @@ def test_an_interrupted_inspection_keeps_the_open_result_and_the_finished_observ
     assert status is ScanStatus.TIMED_OUT
     assert (("10.0.0.2", 80, PortState.OPEN)) in results  # recorded before inspection began
     assert [(o.address, o.port) for o in observations] == [("10.0.0.2", 22), ("10.0.0.1", 22)]
+
+
+def test_a_head_connection_that_cannot_be_made_leaves_the_tls_probe_to_try() -> None:
+    plan: dict[int, Sequence[ScriptedStream | BaseException | str]] = {
+        7000: [ScriptedStream(), ConnectError(NetErrorCode.REFUSED)]
+    }
+    prober = FakeTlsProber(tls_info())
+    seen, connector, *_ = inspect(plan, prober, port=7000)
+    assert seen.probe == "tls"
+    assert len(connector.connects) == 2
+    assert (seen.http_status, seen.http_server) == (None, None)

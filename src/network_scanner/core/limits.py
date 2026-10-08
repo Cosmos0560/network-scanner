@@ -59,9 +59,10 @@ MAX_PORT_SPEC_CHARS = 4096
 MAX_PROBES_PER_RUN = 100_000  # targets x ports, so results and work stay bounded
 
 # Reading what a service sends back (Phase 4). Everything a remote service sends is hostile,
-# so every read has a byte cap, a line cap where lines exist, and a deadline. The banner and
-# HTTP deadlines are `Limits.banner_timeout_s`; the banner byte cap is `Limits.banner_max_bytes`.
+# so every read has a byte cap, a line cap where lines exist, and a deadline. The banner
+# deadline is `Limits.banner_timeout_s` and its byte cap is `Limits.banner_max_bytes`.
 MAX_BANNER_CHARS = 256  # sanitised banner text kept per port
+HTTP_HEAD_TIMEOUT_S = 5.0  # request sent and response head read, all within this deadline
 MAX_HTTP_HEAD_BYTES = 4096  # status line and headers; the body is never read
 MAX_HTTP_HEADER_LINES = 64  # header lines looked at; the rest are ignored
 MAX_HTTP_SERVER_CHARS = 200  # sanitised Server header kept
