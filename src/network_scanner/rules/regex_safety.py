@@ -15,8 +15,11 @@ risk R4):
 - a group that can repeat more than once (`*`, `+`, or `{m,n}` with n above 1) may not
   contain a quantifier that can repeat more than once, or an alternation (this is what makes
   `(a+)+` and `(a|aa)*` exponential);
-- at most `MAX_REGEX_LARGE_REPEATS` unbounded or large repeats in one pattern, which bounds
-  sequences such as `.*.*.*x` to a cubic number of steps;
+- a cost estimate within `MAX_REGEX_COST`. Every choice the matcher can make multiplies the
+  estimate: `*` and `+` by the input length, `?` by 2, `{m,n}` by n-m+1 and an alternation by its
+  number of branches. This is what bounds sequences such as `.*.*.*x` (cubic), `a?a?a?...a`
+  and `(a|a)(a|a)...` (exponential), which the nesting rule above does not see. The estimate
+  over-counts on purpose, so it rejects some safe patterns;
 - a pattern length cap, and a pattern is only ever run on the first `MAX_REGEX_INPUT_CHARS`
   characters of its input.
 
@@ -31,12 +34,11 @@ import warnings
 from dataclasses import dataclass
 
 from network_scanner.core.limits import (
+    MAX_REGEX_COST,
     MAX_REGEX_GROUP_DEPTH,
     MAX_REGEX_INPUT_CHARS,
-    MAX_REGEX_LARGE_REPEATS,
     MAX_REGEX_PATTERN_CHARS,
     MAX_REGEX_REPEAT,
-    REGEX_SMALL_REPEAT,
 )
 
 _HEX = frozenset("0123456789abcdefABCDEF")
@@ -71,7 +73,7 @@ class _Checker:
     def __init__(self, pattern: str) -> None:
         self.text = pattern
         self.at = 0
-        self.large_repeats = 0
+        self.cost = 1
 
     def fail(self, reason: str, position: int | None = None) -> UnsafeRegex:
         return UnsafeRegex(reason, self.at if position is None else position)
@@ -81,13 +83,25 @@ class _Checker:
         return self.text[index] if index < len(self.text) else ""
 
     # -- grammar ---------------------------------------------------------------------
+    def charge(self, factor: int, position: int) -> None:
+        """Multiply the backtracking estimate by `factor`; refuse when it passes the budget."""
+        self.cost *= max(factor, 1)
+        if self.cost > MAX_REGEX_COST:
+            raise self.fail(
+                f"the pattern can backtrack too much (estimate above {MAX_REGEX_COST})", position
+            )
+
     def alternation(self, depth: int) -> _Shape:
         shape = _Shape()
+        start = self.at
+        branches = 1
         while True:
             shape.absorb(self.sequence(depth))
             if self.peek() != "|":
+                self.charge(branches, start)
                 return shape
             self.at += 1
+            branches += 1
             shape.alternates = True
 
     def sequence(self, depth: int) -> _Shape:
@@ -216,23 +230,18 @@ class _Checker:
         return following
 
     def quantifier(self, atom_shape: _Shape, repeatable: bool, start: int) -> _Shape:
-        present, high = self.read_bounds()
+        present, low, high = self.read_bounds()
         if not present:
             return atom_shape
         if not repeatable:
             raise self.fail("this element cannot be repeated", start)
         repeats_more_than_once = high is None or high > 1
-        if repeats_more_than_once:
-            if atom_shape.repeats or atom_shape.alternates:
-                raise self.fail(
-                    "a repeated group may not contain a quantifier or an alternation", start
-                )
-            if high is None or high > REGEX_SMALL_REPEAT:
-                self.large_repeats += 1
-                if self.large_repeats > MAX_REGEX_LARGE_REPEATS:
-                    raise self.fail(
-                        f"more than {MAX_REGEX_LARGE_REPEATS} unbounded or large repeats", start
-                    )
+        if repeats_more_than_once and (atom_shape.repeats or atom_shape.alternates):
+            raise self.fail(
+                "a repeated group may not contain a quantifier or an alternation", start
+            )
+        largest = MAX_REGEX_INPUT_CHARS if high is None else min(high, MAX_REGEX_INPUT_CHARS)
+        self.charge(largest - min(low, largest) + 1, start)
         if self.peek() == "?":  # lazy form
             self.at += 1
         if self.peek() == "+":
@@ -241,17 +250,20 @@ class _Checker:
             raise self.fail("a quantifier cannot be followed by another quantifier")
         return _Shape(atom_shape.repeats or repeats_more_than_once, atom_shape.alternates)
 
-    def read_bounds(self) -> tuple[bool, int | None]:
-        """Consume a quantifier if there is one; returns (found, largest count or None)."""
+    def read_bounds(self) -> tuple[bool, int, int | None]:
+        """Consume a quantifier if there is one; returns (found, smallest, largest or None)."""
         char = self.peek()
-        if char in ("*", "+"):
+        if char == "*":
             self.at += 1
-            return True, None
+            return True, 0, None
+        if char == "+":
+            self.at += 1
+            return True, 1, None
         if char == "?":
             self.at += 1
-            return True, 1
+            return True, 0, 1
         if char != "{":
-            return False, None
+            return False, 0, None
         match = _BRACES.match(self.text, self.at)
         if match is None:
             raise self.fail("malformed repeat; an unescaped '{' is not allowed")
@@ -267,7 +279,7 @@ class _Checker:
         if high is not None and low > high:
             raise self.fail("the minimum of a repeat is above its maximum")
         self.at = match.end()
-        return True, high
+        return True, low, high
 
 
 def check_pattern(pattern: str) -> None:

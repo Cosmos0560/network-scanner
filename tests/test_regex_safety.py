@@ -5,8 +5,8 @@ import re
 import pytest
 
 from network_scanner.core.limits import (
+    MAX_REGEX_COST,
     MAX_REGEX_INPUT_CHARS,
-    MAX_REGEX_LARGE_REPEATS,
     MAX_REGEX_PATTERN_CHARS,
     MAX_REGEX_REPEAT,
 )
@@ -40,7 +40,9 @@ ACCEPTED = [
     r"(a|b)c",
     r"(a|b)?c",
     r"((ab)c)d",
-    r".*.*.*x",  # three unbounded repeats: the most that is accepted
+    r".*.*x",  # two unbounded repeats fit the budget
+    "a?" * 16 + "a" * 16,  # sixteen optional items: 2^16 choices, within the budget
+    r"(a|b)(c|d)(e|f)(g|h)(i|j)(k|l)(m|n)(o|p)",  # 2^8 choices
     r"a{0,255}",
     r"(ab){1,2}",
     r"(ab)?",
@@ -68,9 +70,14 @@ HOSTILE = [
     (r"((a)|(b))+", "may not contain a quantifier or an alternation"),
     (r"(?:a+){2,}", "may not contain a quantifier"),
     # polynomial blow-up through too many large repeats
-    (r".*.*.*.*x", f"more than {MAX_REGEX_LARGE_REPEATS} unbounded or large repeats"),
-    (r"a{20,}b{20,}c{20,}d{20,}", "unbounded or large repeats"),
-    (r"[a-z]{17}[a-z]{17}[a-z]{17}[a-z]{17}", "unbounded or large repeats"),
+    (r".*.*.*x", f"can backtrack too much (estimate above {MAX_REGEX_COST})"),
+    (r".*.*.*.*x", "can backtrack too much"),
+    (r"a{20,}b{20,}c{20,}d{20,}", "can backtrack too much"),
+    (r"[a-z]{1,17}[a-z]{1,17}[a-z]{1,17}[a-z]{1,17}[a-z]{1,17}", "can backtrack too much"),
+    # exponential through a sequence, which the nesting rule does not see
+    ("a?" * 17 + "a" * 17, "can backtrack too much"),
+    ("(a|a)" * 17, "can backtrack too much"),
+    ("(a|b|c)" * 11, "can backtrack too much"),  # 3^11 choices
     # constructs outside the subset
     (r"(a)\1", "backreferences"),
     (r"\1", "backreferences"),
@@ -185,7 +192,20 @@ def test_search_only_looks_at_the_leading_characters() -> None:
     assert search_bounded(compiled, "x" * (MAX_REGEX_INPUT_CHARS - 6) + "needle")
 
 
-def test_the_worst_accepted_pattern_finishes_on_the_longest_input() -> None:
-    """Three adjacent unbounded repeats are cubic at worst; on 256 characters that is fast."""
-    compiled = compile_safe(r".*.*.*x")
-    assert not search_bounded(compiled, "a" * 10_000)  # only the first 256 characters are used
+def test_the_worst_accepted_patterns_finish_on_the_longest_inputs() -> None:
+    """The budget keeps a pattern that backtracks as much as it may cheap on 256 characters."""
+    quadratic = compile_safe(r".*.*x")
+    assert not search_bounded(quadratic, "a" * 10_000)  # only the first 256 characters are used
+    optional = compile_safe("a?" * 16 + "a" * 16)
+    assert search_bounded(optional, "a" * 16)
+    assert not search_bounded(optional, "a" * 15)
+    branches = compile_safe("(a|b)" * 8)
+    assert not search_bounded(branches, "a" * 7)
+
+
+def test_the_cost_estimate_counts_every_choice() -> None:
+    check_pattern("a?" * 16)  # 2^16
+    with pytest.raises(UnsafeRegex, match="backtrack too much"):
+        check_pattern("a?" * 17)  # 2^17 is over the budget
+    check_pattern(r"[0-9]{3}\.[0-9]{3}\.[0-9]{3}")  # exact counts make no choice
+    check_pattern(r"[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}")  # 3^4
