@@ -148,9 +148,9 @@ def test_a_connection_that_returns_too_much_is_cut_at_the_cap() -> None:
         (b"\x1b[31mred\x1b[0m\r\n", "red"),
         (b"a\x00b\x07c\x7fd", "abcd"),
         (b"safe\x1b]0;title\x07 tail", "safe tail"),
-        ("before‮after".encode(), "beforeafter"),
-        (b"bad \xff\xfe bytes", "bad �� bytes"),
-        (b"\xff\xfd\x18\xff\xfd\x20 ready", "����  ready"),  # telnet options
+        ("before\u202eafter".encode(), "beforeafter"),
+        (b"bad \xff\xfe bytes", "bad \ufffd\ufffd bytes"),
+        (b"\xff\xfd\x18\xff\xfd\x20 ready", "\ufffd\ufffd\ufffd\ufffd  ready"),  # telnet options
         (b"tab\there", "tab here"),
         (b"\x00\x00\x00", ""),  # bytes arrived, none printable
         (b"  spaced  \r\n", "spaced"),
@@ -186,7 +186,7 @@ OK = b"HTTP/1.1 200 OK\r\nServer: nginx/1.25\r\nContent-Length: 0\r\n\r\n"
         (b"HTTP/1.1 200 OK\r\n\r\nServer: in-the-body\r\n", HttpHead(200, None)),
         (b"HTTP/1.1 200 OK\r\nno colon here\r\nServer: ok\r\n\r\n", HttpHead(200, "ok")),
         (b"HTTP/1.1 200 \xff\xfe binary reason\r\nServer: ok\r\n\r\n", HttpHead(200, "ok")),
-        (b"HTTP/1.1 200 OK\r\nServer: caf\xc3\xa9\r\n\r\n", HttpHead(200, "café")),
+        (b"HTTP/1.1 200 OK\r\nServer: caf\xc3\xa9\r\n\r\n", HttpHead(200, "caf\u00e9")),
     ],
 )
 def test_valid_http_heads_are_parsed(data: bytes, expected: HttpHead) -> None:
@@ -251,7 +251,7 @@ def test_the_request_is_one_fixed_head_request() -> None:
     )
 
 
-@pytest.mark.parametrize("version", ["bad version", "1.0\r\nX-Evil: 1", "", "v" * 33, "café"])
+@pytest.mark.parametrize("version", ["bad version", "1.0\r\nX-Evil: 1", "", "v" * 33, "caf\u00e9"])
 def test_an_unexpected_tool_version_is_not_put_into_the_request(version: str) -> None:
     request = build_head_request("h:1", version)
     assert b"network-scanner/unknown\r\n" in request
@@ -274,7 +274,9 @@ def test_the_host_header_is_the_name_or_the_address_literal(
     assert host_header(address, port, hostname=hostname) == expected
 
 
-@pytest.mark.parametrize("bad", ["", "a b", "a\r\nX: y", "a\x00", "café.test", "a/b", "a" * 254])
+@pytest.mark.parametrize(
+    "bad", ["", "a b", "a\r\nX: y", "a\x00", "caf\u00e9.test", "a/b", "a" * 254]
+)
 def test_a_host_that_cannot_be_sent_safely_is_refused(bad: str) -> None:
     with pytest.raises(ValueError, match="not in a form"):
         host_header("10.0.0.5", 80, hostname=bad)

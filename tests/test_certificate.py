@@ -378,14 +378,14 @@ def test_exactly_the_maximum_number_of_entries_is_not_truncated() -> None:
 
 
 def test_text_from_the_certificate_is_sanitised_and_capped() -> None:
-    nasty = "evil\x1b[31m‮\x07\x00" + "x" * 50
+    nasty = "evil\x1b[31m\u202e\x07\x00" + "x" * 50
     certificate = lab_certificate(common_name=nasty, dns_names=("lab.test",))
     info = describe(certificate)
     assert info.subject is not None
     for text in (info.subject, info.issuer):
         assert text is not None
         assert "\x1b" not in text
-        assert "‮" not in text
+        assert "\u202e" not in text
         assert "\x07" not in text
         assert "\x00" not in text
         assert len(text) <= MAX_CERT_FIELD_CHARS
