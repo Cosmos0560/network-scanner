@@ -85,3 +85,7 @@ MAX_REGEX_GROUP_DEPTH = 6
 
 # Findings (Phase 5).
 MAX_EVIDENCE_CHARS = 400  # sanitised evidence text kept per finding
+
+# Baselines (Phase 5).
+MAX_BASELINE_BYTES = 16 * 1024 * 1024  # a larger baseline file is refused unread
+MAX_BASELINE_ENTRIES = 100_000  # as many as MAX_PROBES_PER_RUN, the most one scan can probe
